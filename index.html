@@ -4,86 +4,99 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>PlotVision</title>
-
-  <!-- Geist fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-
-  <!-- PDF.js UMD (sets window.pdfjsLib) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.js"></script>
-
   <link rel="stylesheet" href="/src/style.css" />
+  <style>
+    body { display:flex; flex-direction:column; height:100dvh; overflow:hidden; user-select:none; }
+    .app-body { display:flex; flex:1; overflow:hidden; }
+  </style>
 </head>
-<body class="overflow-hidden h-screen flex flex-col select-none">
+<body>
 
   <!-- Topbar -->
-  <header id="topbar" class="h-11 border-b border-border bg-surface flex items-center px-3 gap-2 shrink-0 z-50"></header>
+  <header id="topbar"></header>
 
-  <!-- Three-panel body -->
-  <div class="flex flex-1 overflow-hidden">
+  <div class="app-body">
 
-    <!-- Left panel — tool rail -->
-    <aside id="left-panel" class="w-13 border-r border-border bg-surface flex flex-col items-center py-2 gap-1 shrink-0 z-40"></aside>
+    <!-- Left panel -->
+    <aside id="left-panel"></aside>
 
-    <!-- Canvas area -->
-    <main id="canvas-container" class="flex-1 relative overflow-hidden bg-bg cursor-crosshair">
-      <canvas id="main-canvas" class="absolute inset-0"></canvas>
-      <canvas id="overlay-canvas" class="absolute inset-0 pointer-events-none"></canvas>
+    <!-- Canvas -->
+    <main id="canvas-container" style="flex:1;position:relative;overflow:hidden;background:var(--color-bg);">
+      <canvas id="main-canvas"   style="position:absolute;inset:0;display:block;"></canvas>
+      <canvas id="overlay-canvas" style="position:absolute;inset:0;pointer-events:none;display:block;"></canvas>
 
-      <!-- Drop overlay (shown when dragging file) -->
-      <div id="drop-overlay" class="absolute inset-0 bg-bg/90 border-2 border-dashed border-accent rounded-lg flex flex-col items-center justify-center gap-3 hidden z-20">
-        <p class="text-accent text-lg font-medium">Drop image or PDF to load</p>
-        <p class="text-muted text-sm">PNG, JPG, BMP, GIF, WebP, TIFF, SVG, PDF</p>
+      <div id="drop-overlay" style="display:none;">
+        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12-4-4m4 4 4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21h14.878a2 2 0 0 0 1.94-1.515L22 17"/></svg>
+        <p style="font-size:14px;font-weight:600;color:var(--color-accent);">Drop to load</p>
+        <p style="font-size:11px;color:var(--color-text-2);">PNG · JPG · PDF · SVG · WebP</p>
       </div>
 
-      <!-- Empty state (shown when no image loaded) -->
-      <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center gap-4 pointer-events-none">
-        <p class="text-text text-xl font-medium">No image loaded</p>
-        <p class="text-muted text-sm text-center max-w-xs">Drag & drop an image or PDF, paste from clipboard (Ctrl+V), or click Open</p>
-        <button id="empty-open-btn" class="pointer-events-auto mt-2 px-4 py-2 bg-accent text-bg text-sm font-medium rounded-sm hover:bg-accent/90 transition-colors">
-          Open File
-        </button>
+      <div id="empty-state">
+        <div class="empty-icon">📊</div>
+        <p class="empty-title">No image loaded</p>
+        <p class="empty-sub">Drag & drop a chart, paste from clipboard (Ctrl+V), or open a file below</p>
+        <button class="empty-open-btn" id="empty-open-btn">Open File</button>
       </div>
     </main>
 
     <!-- Right panel -->
-    <aside id="right-panel" class="w-72 border-l border-border bg-surface flex flex-col shrink-0 overflow-hidden z-40"></aside>
+    <aside id="right-panel">
+      <div class="panel-tabs" id="panel-tabs"></div>
+      <div class="panel-body" id="panel-body"></div>
+    </aside>
 
   </div>
 
   <!-- Status bar -->
-  <footer id="status-bar" class="h-7 border-t border-border bg-surface flex items-center px-3 gap-4 text-xs text-muted font-mono shrink-0">
-    <span id="status-coords">x: —, y: —</span>
-    <span class="text-faint">|</span>
-    <span id="status-points">0 points</span>
-    <span class="text-faint">|</span>
-    <span id="status-tool">Pointer</span>
-    <span class="text-faint">|</span>
-    <span id="status-zoom">100%</span>
-    <span class="ml-auto" id="status-filename"></span>
+  <footer id="status-bar">
+    <span>x <span class="status-val" id="st-x">—</span></span>
+    <span class="divider">·</span>
+    <span>y <span class="status-val" id="st-y">—</span></span>
+    <span class="divider">·</span>
+    <span class="status-val" id="st-pts">0 pts</span>
+    <span class="divider">·</span>
+    <span class="status-val" id="st-tool">Pointer</span>
+    <span class="divider">·</span>
+    <span class="status-val" id="st-zoom">100%</span>
+    <span style="flex:1"></span>
+    <span id="st-file" style="color:var(--color-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;"></span>
   </footer>
 
   <!-- Toast container -->
-  <div id="toast-container" class="fixed bottom-10 right-4 flex flex-col gap-2 z-[100] pointer-events-none"></div>
+  <div id="toast-container"></div>
 
-  <!-- Keyboard shortcuts modal -->
-  <div id="shortcuts-modal" class="fixed inset-0 bg-bg/80 backdrop-blur-sm flex items-center justify-center z-[200] hidden">
-    <div class="bg-surface border border-border rounded-md w-[520px] max-h-[80vh] overflow-y-auto">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h2 class="text-text font-medium">Keyboard Shortcuts</h2>
-        <button id="shortcuts-close" class="text-muted hover:text-text text-lg leading-none">×</button>
+  <!-- Shortcuts modal -->
+  <div id="shortcuts-modal" style="display:none;" class="modal-backdrop">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">Keyboard Shortcuts</span>
+        <button class="modal-close" id="shortcuts-close">×</button>
       </div>
-      <div id="shortcuts-content" class="p-4 grid grid-cols-2 gap-x-6 gap-y-1 text-sm"></div>
+      <div id="shortcuts-content" style="padding:14px 18px 18px;display:grid;grid-template-columns:1fr 1fr;gap:0 20px;"></div>
     </div>
   </div>
 
-  <!-- Delete confirm popover -->
-  <div id="delete-popover" class="fixed bg-surface border border-border rounded-md shadow-lg p-3 flex flex-col gap-2 z-[150] hidden">
-    <p class="text-text text-sm">Delete this point?</p>
-    <div class="flex gap-2 justify-end">
-      <button id="delete-cancel" class="px-3 py-1 text-xs text-muted border border-border rounded-sm hover:text-text">Cancel</button>
-      <button id="delete-confirm" class="px-3 py-1 text-xs text-bg bg-red-500 rounded-sm hover:bg-red-400">Delete</button>
+  <!-- Export modal -->
+  <div id="export-modal" style="display:none;" class="modal-backdrop">
+    <div class="modal" style="width:400px;">
+      <div class="modal-header">
+        <span class="modal-title">Export Data</span>
+        <button class="modal-close" id="export-modal-close">×</button>
+      </div>
+      <div class="modal-body" id="export-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Delete confirm -->
+  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface-3);border:1px solid var(--color-border-2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:12px 14px;min-width:172px;">
+    <p style="font-size:12px;color:var(--color-text);margin-bottom:10px;">Delete this point?</p>
+    <div style="display:flex;gap:7px;justify-content:flex-end;">
+      <button id="delete-cancel"  class="btn btn-ghost   btn-sm" style="width:auto;">Cancel</button>
+      <button id="delete-confirm" class="btn btn-danger  btn-sm" style="width:auto;">Delete</button>
     </div>
   </div>
 

@@ -295,28 +295,29 @@ function drawDatasetPoints(
 }
 
 function updateStatusBar(state: ReturnType<typeof getState>): void {
-  const coords = document.getElementById('status-coords');
-  const pointsEl = document.getElementById('status-points');
-  const toolEl = document.getElementById('status-tool');
-  const zoomEl = document.getElementById('status-zoom');
-  const filenameEl = document.getElementById('status-filename');
+  const xEl   = document.getElementById('st-x');
+  const yEl   = document.getElementById('st-y');
+  const ptsEl = document.getElementById('st-pts');
+  const toolEl= document.getElementById('st-tool');
+  const zoomEl= document.getElementById('st-zoom');
+  const fileEl= document.getElementById('st-file');
 
-  if (coords && state.calibration.isComplete && state.calibration.transform) {
-    const { dataX, dataY } = linearPixelToData(
-      mouseImgX, mouseImgY, state.calibration.transform
-    );
-    coords.textContent = `x: ${dataX.toPrecision(5)}, y: ${dataY.toPrecision(5)}`;
-  } else if (coords) {
-    coords.textContent = `px: ${mouseImgX.toFixed(1)}, ${mouseImgY.toFixed(1)}`;
+  if (state.calibration.isComplete && state.calibration.transform) {
+    const { dataX, dataY } = linearPixelToData(mouseImgX, mouseImgY, state.calibration.transform);
+    if (xEl) xEl.textContent = dataX.toPrecision(5);
+    if (yEl) yEl.textContent = dataY.toPrecision(5);
+  } else {
+    if (xEl) xEl.textContent = mouseImgX.toFixed(1) + 'px';
+    if (yEl) yEl.textContent = mouseImgY.toFixed(1) + 'px';
   }
 
-  if (pointsEl) {
+  if (ptsEl) {
     const active = state.datasets.find(d => d.id === state.activeDatasetId);
-    pointsEl.textContent = active ? `${active.points.length} pts` : '0 pts';
+    ptsEl.textContent = active ? `${active.points.length} pts` : '0 pts';
   }
   if (toolEl) toolEl.textContent = state.activeTool;
   if (zoomEl) zoomEl.textContent = `${Math.round(state.canvas.zoom * 100)}%`;
-  if (filenameEl) filenameEl.textContent = state.image.filename || '';
+  if (fileEl) fileEl.textContent = state.image.filename || '';
 }
 
 // Hit testing

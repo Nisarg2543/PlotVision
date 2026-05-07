@@ -2,178 +2,186 @@ import { getState, subscribe } from '../state/store';
 import { fitToWindow, zoomBy } from '../modules/canvas-engine';
 import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
-import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX } from '../modules/export';
 import { saveProject, openProjectPicker } from '../modules/project';
+import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX } from '../modules/export';
+
+const I = {
+  logo:    `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect width="18" height="18" rx="4" fill="#22d3ee" fill-opacity="0.15"/><path d="M3 13.5 6.5 8 10 10.5 13.5 4.5" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="8" r="1.2" fill="#22d3ee"/><circle cx="10" cy="10.5" r="1.2" fill="#22d3ee"/><circle cx="13.5" cy="4.5" r="1.2" fill="#22d3ee"/></svg>`,
+  open:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
+  save:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
+  load:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  undo:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>`,
+  redo:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>`,
+  zoomIn:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`,
+  zoomOut: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`,
+  fit:     `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`,
+  export:  `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  help:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
+  chevron: `<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>`,
+};
+
+function mkBtn(icon: string, label: string, title: string, cls = ''): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.className = `tb-btn ${cls}`.trim();
+  b.title = title;
+  b.innerHTML = label ? `${icon}<span>${label}</span>` : icon;
+  return b;
+}
+
+function mkDivider(): HTMLElement {
+  const d = document.createElement('div');
+  d.className = 'tb-divider';
+  return d;
+}
 
 export function initToolbar(container: HTMLElement): void {
   container.innerHTML = '';
 
   // Logo
   const logo = document.createElement('div');
-  logo.className = 'flex items-center gap-2 mr-3';
-  logo.innerHTML = `
-    <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-      <rect width="20" height="20" rx="4" fill="#22d3ee" fill-opacity="0.15"/>
-      <path d="M3 15 L7 9 L11 12 L15 5" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="7" cy="9" r="1.5" fill="#22d3ee"/>
-      <circle cx="11" cy="12" r="1.5" fill="#22d3ee"/>
-      <circle cx="15" cy="5" r="1.5" fill="#22d3ee"/>
-    </svg>
-    <span style="color:#e5e5e5;font-weight:600;font-size:14px;letter-spacing:-0.3px">PlotVision</span>
-  `;
+  logo.className = 'tb-logo';
+  logo.innerHTML = `${I.logo}<span class="tb-logo-text">PlotVision</span>`;
   container.appendChild(logo);
-
-  // Separator
-  container.appendChild(makeSep());
+  container.appendChild(mkDivider());
 
   // Open image
-  const openBtn = makeTopbarBtn('Open Image', '📂');
+  const openBtn = mkBtn(I.open, 'Open', 'Open image or PDF');
   openBtn.addEventListener('click', openFilePicker);
   container.appendChild(openBtn);
 
   // Save project
-  const saveBtn = makeTopbarBtn('Save', '💾', 'Ctrl+S');
+  const saveBtn = mkBtn(I.save, 'Save', 'Save project — Ctrl+S');
+  saveBtn.id = 'tb-save';
   saveBtn.addEventListener('click', () => saveProject());
   container.appendChild(saveBtn);
 
   // Load project
-  const loadBtn = makeTopbarBtn('Load Project', '📁');
+  const loadBtn = mkBtn(I.load, 'Load', 'Load .pvz project — Ctrl+O');
   loadBtn.addEventListener('click', openProjectPicker);
   container.appendChild(loadBtn);
 
-  // Separator
-  container.appendChild(makeSep());
+  container.appendChild(mkDivider());
 
   // Undo / Redo
-  const undoBtn = makeTopbarBtn('Undo', '↩', 'Ctrl+Z');
-  undoBtn.id = 'btn-undo';
-  undoBtn.addEventListener('click', () => undo());
+  const undoBtn = mkBtn(I.undo, 'Undo', 'Undo — Ctrl+Z');
+  undoBtn.id = 'tb-undo';
+  undoBtn.addEventListener('click', undo);
   container.appendChild(undoBtn);
 
-  const redoBtn = makeTopbarBtn('Redo', '↪', 'Ctrl+Shift+Z');
-  redoBtn.id = 'btn-redo';
-  redoBtn.addEventListener('click', () => redo());
+  const redoBtn = mkBtn(I.redo, 'Redo', 'Redo — Ctrl+Shift+Z');
+  redoBtn.id = 'tb-redo';
+  redoBtn.addEventListener('click', redo);
   container.appendChild(redoBtn);
 
-  container.appendChild(makeSep());
+  container.appendChild(mkDivider());
 
-  // Zoom controls
-  const zoomOutBtn = makeTopbarBtn('Zoom Out', '−', '−');
-  zoomOutBtn.addEventListener('click', () => zoomBy(1 / 1.3));
-  container.appendChild(zoomOutBtn);
-
-  const zoomInBtn = makeTopbarBtn('Zoom In', '+', '+');
+  // Zoom
+  const zoomInBtn = mkBtn(I.zoomIn, '', 'Zoom in (+)');
   zoomInBtn.addEventListener('click', () => zoomBy(1.3));
   container.appendChild(zoomInBtn);
 
-  const fitBtn = makeTopbarBtn('Fit to Window', '⊡', '0');
+  const zoomOutBtn = mkBtn(I.zoomOut, '', 'Zoom out (−)');
+  zoomOutBtn.addEventListener('click', () => zoomBy(1 / 1.3));
+  container.appendChild(zoomOutBtn);
+
+  const fitBtn = mkBtn(I.fit, 'Fit', 'Fit to window (0)');
   fitBtn.addEventListener('click', fitToWindow);
   container.appendChild(fitBtn);
 
   // Spacer
   const spacer = document.createElement('div');
-  spacer.className = 'flex-1';
+  spacer.className = 'tb-spacer';
   container.appendChild(spacer);
 
-  // Export dropdown
-  const exportWrap = document.createElement('div');
-  exportWrap.className = 'relative';
-  const exportBtn = makeTopbarBtn('Export', '⬇');
-  exportWrap.appendChild(exportBtn);
+  // Export
+  const exportBtn = mkBtn(I.export + I.chevron, 'Export', 'Export data', 'tb-btn-accent');
+  exportBtn.style.gap = '5px';
+  exportBtn.addEventListener('click', openExportModal);
+  container.appendChild(exportBtn);
 
-  const menu = document.createElement('div');
-  menu.className = 'dropdown-menu hidden';
-  menu.innerHTML = `
-    <div class="dropdown-item" data-action="csv">Export CSV (all)</div>
-    <div class="dropdown-item" data-action="csv-active">Export CSV (active)</div>
-    <div class="dropdown-item" data-action="excel">Export Excel (.xlsx)</div>
-    <div class="dropdown-item" data-action="json">Export JSON</div>
-    <div class="dropdown-item" data-action="clipboard">Copy to Clipboard</div>
-    <div class="dropdown-item" data-action="latex">Export LaTeX</div>
-  `;
-  exportWrap.appendChild(menu);
+  container.appendChild(mkDivider());
 
-  exportBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    menu.classList.toggle('hidden');
+  // Help
+  const helpBtn = mkBtn(I.help, '', 'Keyboard shortcuts (?)');
+  helpBtn.addEventListener('click', () => {
+    (document.getElementById('shortcuts-modal') as HTMLElement).style.display = 'flex';
   });
-  menu.addEventListener('click', (e) => {
-    const action = (e.target as HTMLElement).dataset.action;
-    menu.classList.add('hidden');
-    if (action === 'csv') exportCSV();
-    else if (action === 'csv-active') exportCSV(getState().activeDatasetId ?? undefined);
-    else if (action === 'excel') exportExcel();
-    else if (action === 'json') exportJSON();
-    else if (action === 'clipboard') exportClipboard();
-    else if (action === 'latex') exportLaTeX();
-  });
-  document.addEventListener('click', () => menu.classList.add('hidden'));
-  container.appendChild(exportWrap);
-
-  container.appendChild(makeSep());
-
-  // Help / shortcuts
-  const helpBtn = makeTopbarBtn('Shortcuts', '?', '?');
-  helpBtn.addEventListener('click', openShortcutsModal);
   container.appendChild(helpBtn);
 
-  // Subscribe to state for undo/redo button states
-  subscribe(() => {
-    const undoEl = document.getElementById('btn-undo') as HTMLButtonElement | null;
-    const redoEl = document.getElementById('btn-redo') as HTMLButtonElement | null;
-    if (undoEl) undoEl.disabled = !canUndo();
-    if (redoEl) redoEl.disabled = !canRedo();
-  });
+  // Keep undo/redo synced
+  const syncUndoRedo = () => {
+    (document.getElementById('tb-undo') as HTMLButtonElement).disabled = !canUndo();
+    (document.getElementById('tb-redo') as HTMLButtonElement).disabled = !canRedo();
+  };
+  syncUndoRedo();
+  subscribe(syncUndoRedo);
 
-  // Shortcuts modal setup
-  setupShortcutsModal();
+  buildShortcutsModal();
 }
 
-function makeTopbarBtn(label: string, emoji: string, shortcut?: string): HTMLButtonElement {
-  const btn = document.createElement('button');
-  btn.className = 'topbar-btn';
-  btn.title = label + (shortcut ? ` (${shortcut})` : '');
-  btn.innerHTML = `<span>${emoji}</span><span>${label}</span>`;
-  return btn;
-}
+function openExportModal(): void {
+  const modal = document.getElementById('export-modal') as HTMLElement;
+  const body  = document.getElementById('export-modal-body') as HTMLElement;
+  const state = getState();
+  const activeDs = state.datasets.find(d => d.id === state.activeDatasetId);
 
-function makeSep(): HTMLElement {
-  const s = document.createElement('div');
-  s.style.cssText = 'width:1px;height:20px;background:#2a2a2a;margin:0 4px;flex-shrink:0';
-  return s;
-}
+  body.innerHTML = '';
+  body.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:14px 18px 18px;';
 
-function openShortcutsModal(): void {
-  document.getElementById('shortcuts-modal')?.classList.remove('hidden');
-}
-
-function setupShortcutsModal(): void {
-  const content = document.getElementById('shortcuts-content');
-  if (!content) return;
-
-  const shortcuts = [
-    ['V', 'Pointer tool'], ['C', 'Calibrate tool'], ['A', 'Add point'],
-    ['T', 'Auto-trace tool'], ['M', 'Measure tool'], ['E', 'Eraser'],
-    ['Space + drag', 'Pan canvas'], ['Ctrl+Z', 'Undo'], ['Ctrl+Shift+Z', 'Redo'],
-    ['Ctrl+S', 'Save project'], ['Ctrl+E', 'Export CSV'], ['Ctrl+A', 'Select all'],
-    ['+', 'Zoom in'], ['-', 'Zoom out'], ['0', 'Fit to window'],
-    ['Delete', 'Delete point'], ['Tab', 'Cycle dataset'],
-    ['↑↓←→', 'Nudge point 1px'], ['Shift+↑↓←→', 'Nudge 10px'], ['?', 'Show shortcuts'],
+  const rows: { label: string; sub: string; action: () => void; disabled?: boolean }[] = [
+    { label: 'CSV — All datasets',   sub: 'Comma-separated, one row per point',    action: () => exportCSV() },
+    { label: 'CSV — Active dataset', sub: activeDs ? `"${activeDs.name}"` : 'No dataset selected', action: () => activeDs ? exportCSV(activeDs.id) : undefined, disabled: !activeDs },
+    { label: 'Excel (.xlsx)',        sub: 'Each dataset on a separate sheet',       action: () => exportExcel() },
+    { label: 'JSON',                 sub: 'Structured with calibration metadata',   action: () => exportJSON() },
+    { label: 'Copy to Clipboard',    sub: 'Tab-separated, paste into Excel/Sheets', action: () => exportClipboard() },
+    { label: 'LaTeX table',          sub: '\\tabular environment',                 action: () => exportLaTeX() },
   ];
 
-  content.innerHTML = shortcuts.map(([k, desc]) => `
-    <div class="flex items-center justify-between py-1 gap-4">
-      <span style="color:#71717a;font-size:12px">${desc}</span>
-      <kbd style="background:#0d0d0d;border:1px solid #2a2a2a;border-radius:3px;padding:1px 5px;font-family:monospace;font-size:11px;color:#e5e5e5;white-space:nowrap">${k}</kbd>
+  for (const row of rows) {
+    const btn = document.createElement('button');
+    btn.disabled = !!row.disabled;
+    btn.style.cssText = `display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:10px 12px;border-radius:7px;border:1px solid var(--color-border);background:var(--color-bg);cursor:${row.disabled ? 'not-allowed' : 'pointer'};opacity:${row.disabled ? '0.4' : '1'};transition:border-color 0.12s,background 0.12s;text-align:left;`;
+    btn.innerHTML = `<span style="font-size:12px;font-weight:600;color:var(--color-text);">${row.label}</span><span style="font-size:11px;color:var(--color-muted);">${row.sub}</span>`;
+    if (!row.disabled) {
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'var(--color-border-2)'; btn.style.background = 'var(--color-faint)'; });
+      btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--color-border)';   btn.style.background = 'var(--color-bg)'; });
+      btn.addEventListener('click', () => { row.action(); modal.style.display = 'none'; });
+    }
+    body.appendChild(btn);
+  }
+
+  modal.style.display = 'flex';
+  document.getElementById('export-modal-close')!.onclick = () => { modal.style.display = 'none'; };
+  modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+}
+
+function buildShortcutsModal(): void {
+  const content = document.getElementById('shortcuts-content')!;
+  const shortcuts: [string, string][] = [
+    ['V', 'Pointer tool'],       ['C', 'Calibrate'],
+    ['A', 'Add point'],          ['T', 'Auto-trace'],
+    ['M', 'Measure'],            ['E', 'Eraser'],
+    ['Space+drag', 'Pan'],       ['0', 'Fit to window'],
+    ['+', 'Zoom in'],            ['−', 'Zoom out'],
+    ['Ctrl+Z', 'Undo'],          ['Ctrl+Shift+Z', 'Redo'],
+    ['Ctrl+S', 'Save project'],  ['Ctrl+O', 'Load project'],
+    ['Ctrl+E', 'Export CSV'],    ['Ctrl+A', 'Select all'],
+    ['Delete', 'Delete point'],  ['Tab', 'Cycle dataset'],
+    ['↑↓←→', 'Nudge 1px'],      ['Shift+↑↓←→', 'Nudge 10px'],
+    ['?', 'Shortcuts'],          ['Esc', 'Close dialogs'],
+  ];
+
+  content.innerHTML = shortcuts.map(([key, desc]) => `
+    <div class="shortcut-row">
+      <span class="shortcut-desc">${desc}</span>
+      <kbd>${key}</kbd>
     </div>
   `).join('');
 
-  document.getElementById('shortcuts-close')?.addEventListener('click', () => {
-    document.getElementById('shortcuts-modal')?.classList.add('hidden');
-  });
-  document.getElementById('shortcuts-modal')?.addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) {
-      (e.currentTarget as HTMLElement).classList.add('hidden');
-    }
+  document.getElementById('shortcuts-close')!.onclick = () => {
+    (document.getElementById('shortcuts-modal') as HTMLElement).style.display = 'none';
+  };
+  document.getElementById('shortcuts-modal')!.addEventListener('click', e => {
+    if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).style.display = 'none';
   });
 }
