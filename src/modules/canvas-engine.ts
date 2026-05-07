@@ -183,7 +183,7 @@ function drawAutoTracePreview(zoom: number, panX: number, panY: number): void {
 }
 
 function drawCrosshair(x: number, y: number, w: number, h: number): void {
-  overlayCtx.strokeStyle = 'rgba(34,211,238,0.4)';
+  overlayCtx.strokeStyle = 'rgba(37,99,235,0.35)';
   overlayCtx.lineWidth = 0.5;
   overlayCtx.setLineDash([4, 4]);
   overlayCtx.beginPath();
@@ -198,7 +198,7 @@ function drawCalibGrid(
   zoom: number, panX: number, panY: number, w: number, h: number
 ): void {
   if (!t) return;
-  ctx.strokeStyle = 'rgba(34,211,238,0.15)';
+  ctx.strokeStyle = 'rgba(37,99,235,0.18)';
   ctx.lineWidth = 0.5;
 
   const xRange = Math.abs(t.x2Data - t.x1Data);
@@ -230,7 +230,7 @@ function drawCalibGrid(
 }
 
 const CALIB_COLORS: Record<string, string> = {
-  x1: '#22d3ee', x2: '#22d3ee', y1: '#f59e0b', y2: '#f59e0b',
+  x1: '#2563eb', x2: '#2563eb', y1: '#d97706', y2: '#d97706',
 };
 const CALIB_LABELS: Record<string, string> = { x1: 'X1', x2: 'X2', y1: 'Y1', y2: 'Y2' };
 
@@ -260,7 +260,7 @@ function drawCalibPoints(points: CalibrationPoint[], zoom: number, panX: number,
       const val = pt.role === 'x1' || pt.role === 'x2'
         ? `=${pt.dataX}`
         : `=${pt.dataY}`;
-      ctx.fillStyle = '#71717a';
+      ctx.fillStyle = '#52525b';
       ctx.font = '10px Geist Mono, monospace';
       ctx.fillText(val, canvasX + 8, canvasY + 6);
     }
@@ -280,23 +280,25 @@ function drawDatasetPoints(
     ctx.arc(canvasX, canvasY, r, 0, Math.PI * 2);
     ctx.fillStyle = ds.color;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.6)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
     if (isHover && transform) {
-      // Tooltip
       const text = `(${pt.dataX.toPrecision(5)}, ${pt.dataY.toPrecision(5)})`;
+      ctx.font = '11px Geist Mono, monospace';
       const tw = ctx.measureText(text).width;
       const tx = canvasX + 10;
       const ty = canvasY - 12;
-      ctx.fillStyle = '#161616';
-      ctx.fillRect(tx - 3, ty - 12, tw + 6, 18);
-      ctx.strokeStyle = '#2a2a2a';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0,0,0,0.12)';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(tx - 4, ty - 13, tw + 8, 20);
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = '#e4e4e7';
       ctx.lineWidth = 1;
-      ctx.strokeRect(tx - 3, ty - 12, tw + 6, 18);
-      ctx.fillStyle = '#e5e5e5';
-      ctx.font = '11px Geist Mono, monospace';
+      ctx.strokeRect(tx - 4, ty - 13, tw + 8, 20);
+      ctx.fillStyle = '#09090b';
       ctx.fillText(text, tx, ty);
     }
   }
