@@ -4,6 +4,7 @@ import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
 import { saveProject, openProjectPicker } from '../modules/project';
 import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX } from '../modules/export';
+import { openBatchPicker, isBatchActive, markCurrentDone, skipCurrent, getQueue, getCurrentIndex } from '../modules/batch';
 
 const I = {
   logo:    `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect width="18" height="18" rx="4" fill="#22d3ee" fill-opacity="0.15"/><path d="M3 13.5 6.5 8 10 10.5 13.5 4.5" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="8" r="1.2" fill="#22d3ee"/><circle cx="10" cy="10.5" r="1.2" fill="#22d3ee"/><circle cx="13.5" cy="4.5" r="1.2" fill="#22d3ee"/></svg>`,
@@ -59,6 +60,18 @@ export function initToolbar(container: HTMLElement): void {
   const loadBtn = mkBtn(I.load, 'Load', 'Load .pvz project — Ctrl+O');
   loadBtn.addEventListener('click', openProjectPicker);
   container.appendChild(loadBtn);
+
+  // Batch
+  const batchBtn = mkBtn(
+    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>`,
+    'Batch', 'Load multiple images for batch processing'
+  );
+  batchBtn.id = 'tb-batch';
+  batchBtn.addEventListener('click', () => {
+    if (isBatchActive()) openBatchStatusModal();
+    else openBatchPicker();
+  });
+  container.appendChild(batchBtn);
 
   container.appendChild(mkDivider());
 
@@ -153,6 +166,51 @@ function openExportModal(): void {
   modal.style.display = 'flex';
   document.getElementById('export-modal-close')!.onclick = () => { modal.style.display = 'none'; };
   modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+}
+
+function openBatchStatusModal(): void {
+  const queue = getQueue();
+  const idx   = getCurrentIndex();
+
+  // Build an inline modal showing queue status
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop';
+  backdrop.style.display = 'flex';
+
+  const modal = document.createElement('div');
+  modal.className = 'modal';
+  modal.style.width = '420px';
+
+  const statusColors: Record<string, string> = { pending: '#555', active: '#22d3ee', done: '#34d399', skipped: '#f59e0b' };
+
+  modal.innerHTML = `
+    <div class="modal-header">
+      <span class="modal-title">Batch Queue (${idx + 1} / ${queue.length})</span>
+      <button class="modal-close" id="batch-modal-close">×</button>
+    </div>
+    <div style="max-height:300px;overflow-y:auto;padding:12px 18px;display:flex;flex-direction:column;gap:6px;">
+      ${queue.map((item, i) => `
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:${i === idx ? 'color-mix(in srgb,#22d3ee 6%,transparent)' : 'var(--color-bg)'};border:1px solid ${i === idx ? '#22d3ee33' : 'var(--color-border)'};">
+          <div style="width:8px;height:8px;border-radius:50%;background:${statusColors[item.status]};flex-shrink:0;"></div>
+          <span style="flex:1;font-size:12px;color:var(--color-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.file.name}</span>
+          <span style="font-size:10px;color:var(--color-muted);text-transform:uppercase;letter-spacing:0.05em;">${item.status}</span>
+        </div>
+      `).join('')}
+    </div>
+    <div style="display:flex;gap:8px;padding:12px 18px;border-top:1px solid var(--color-border);">
+      <button id="batch-skip"  class="btn btn-ghost  btn-sm" style="width:auto;">Skip this image</button>
+      <button id="batch-done"  class="btn btn-success btn-sm" style="flex:1;">Done → Next image</button>
+    </div>
+  `;
+
+  backdrop.appendChild(modal);
+  document.body.appendChild(backdrop);
+
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
+  modal.querySelector('#batch-modal-close')!.addEventListener('click', close);
+  modal.querySelector('#batch-skip')!.addEventListener('click', () => { skipCurrent(); close(); });
+  modal.querySelector('#batch-done')!.addEventListener('click', () => { markCurrentDone(); close(); });
 }
 
 function buildShortcutsModal(): void {

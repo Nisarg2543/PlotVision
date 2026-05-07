@@ -1,6 +1,6 @@
 import { getState, setState } from '../state/store';
 import { linearPixelToData, linearDataToPixel } from '../utils/math';
-import { isLogAxisType, getLogFlags, logPixelToData } from './axis-types';
+import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
 import { uid } from '../utils/math';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
@@ -108,7 +108,13 @@ export function updatePointData(datasetId: string, pointId: string, dataX: numbe
   const pt = ds?.points.find(p => p.id === pointId);
   if (!pt || !state.calibration.transform) return;
 
-  const { pixelX, pixelY } = linearDataToPixel(dataX, dataY, state.calibration.transform);
+  let pixelX: number, pixelY: number;
+  if (isLogAxisType(state.calibration.axisType)) {
+    const { logX, logY } = getLogFlags(state.calibration.axisType);
+    ({ pixelX, pixelY } = logDataToPixel(dataX, dataY, state.calibration.transform, logX, logY));
+  } else {
+    ({ pixelX, pixelY } = linearDataToPixel(dataX, dataY, state.calibration.transform));
+  }
 
   pushHistory('Edit point value');
   setState(draft => {

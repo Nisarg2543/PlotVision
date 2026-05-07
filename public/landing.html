@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PlotVision — Extract Data from Any Chart</title>
+  <meta name="description" content="The modern alternative to WebPlotDigitizer. Extract numerical data from chart images with precision. Free, browser-based, no signup required." />
+  <meta property="og:title" content="PlotVision — Extract Data from Any Chart" />
+  <meta property="og:description" content="Free browser-based graph digitizer. Load any chart image, calibrate axes, and export clean data to CSV, Excel, or JSON." />
+  <meta property="og:type" content="website" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #080808;
+      --surface: #0f0f0f;
+      --border: #1e1e1e;
+      --accent: #22d3ee;
+      --text: #efefef;
+      --text-2: #888;
+      --muted: #444;
+    }
+    html { background: var(--bg); color: var(--text); font-family: 'Geist', system-ui, sans-serif; font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased; }
+    body { min-height: 100dvh; }
+
+    /* ── Nav ───────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 40px; height: 56px;
+      background: rgba(8,8,8,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .nav-logo-icon { width: 28px; height: 28px; }
+    .nav-logo-text { font-size: 16px; font-weight: 700; color: var(--text); letter-spacing: -0.5px; }
+    .nav-cta {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 8px 18px; border-radius: 8px;
+      background: var(--accent); color: #050505;
+      font-size: 13px; font-weight: 700;
+      text-decoration: none; transition: opacity 0.15s;
+    }
+    .nav-cta:hover { opacity: 0.88; }
+
+    /* ── Hero ──────────────────────────────────────── */
+    .hero {
+      max-width: 860px; margin: 0 auto;
+      padding: 96px 24px 72px;
+      text-align: center;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 5px 12px; border-radius: 20px;
+      border: 1px solid rgba(34,211,238,0.25);
+      background: rgba(34,211,238,0.07);
+      font-size: 12px; font-weight: 600; color: var(--accent);
+      letter-spacing: 0.03em; margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: clamp(36px, 6vw, 64px);
+      font-weight: 700; letter-spacing: -2px; line-height: 1.1;
+      color: var(--text); margin-bottom: 22px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p {
+      font-size: clamp(15px, 2vw, 18px);
+      color: var(--text-2); max-width: 560px;
+      margin: 0 auto 36px; line-height: 1.7;
+    }
+    .hero-actions { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 13px 28px; border-radius: 10px;
+      background: var(--accent); color: #050505;
+      font-size: 14px; font-weight: 700;
+      text-decoration: none; transition: opacity 0.15s;
+    }
+    .btn-primary:hover { opacity: 0.88; }
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 13px 24px; border-radius: 10px;
+      border: 1px solid var(--border);
+      color: var(--text-2); font-size: 14px; font-weight: 500;
+      text-decoration: none; background: var(--surface);
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { border-color: #2e2e2e; color: var(--text); }
+    .hero-note { margin-top: 16px; font-size: 12px; color: var(--muted); }
+
+    /* ── Features ──────────────────────────────────── */
+    .features {
+      max-width: 1100px; margin: 0 auto;
+      padding: 72px 24px;
+    }
+    .section-label {
+      text-align: center; font-size: 11px; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 14px;
+    }
+    .section-title {
+      text-align: center; font-size: clamp(24px, 4vw, 36px);
+      font-weight: 700; letter-spacing: -1px; color: var(--text);
+      margin-bottom: 56px;
+    }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .feature-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px;
+      transition: border-color 0.15s;
+    }
+    .feature-card:hover { border-color: #2e2e2e; }
+    .feature-icon {
+      width: 40px; height: 40px;
+      background: rgba(34,211,238,0.08);
+      border: 1px solid rgba(34,211,238,0.15);
+      border-radius: 10px; display: flex;
+      align-items: center; justify-content: center;
+      font-size: 18px; margin-bottom: 14px;
+    }
+    .feature-title { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+    .feature-desc { font-size: 13px; color: var(--text-2); line-height: 1.6; }
+
+    /* ── Comparison ────────────────────────────────── */
+    .comparison {
+      max-width: 800px; margin: 0 auto;
+      padding: 72px 24px;
+    }
+    .compare-table {
+      width: 100%; border-collapse: collapse;
+      border-radius: 12px; overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .compare-table th {
+      padding: 14px 20px; font-size: 13px; font-weight: 600;
+      text-align: left; background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .compare-table th:not(:first-child) { text-align: center; }
+    .compare-table td {
+      padding: 12px 20px; font-size: 13px; color: var(--text-2);
+      border-bottom: 1px solid var(--border);
+    }
+    .compare-table tr:last-child td { border-bottom: none; }
+    .compare-table td:not(:first-child) { text-align: center; }
+    .check { color: #34d399; font-size: 16px; }
+    .cross { color: #f87171; font-size: 16px; }
+    .col-pv { color: var(--accent) !important; font-weight: 600; }
+
+    /* ── Axis types ────────────────────────────────── */
+    .axis-grid {
+      display: flex; flex-wrap: wrap; gap: 10px;
+      justify-content: center; margin-top: 32px;
+    }
+    .axis-tag {
+      padding: 6px 14px; border-radius: 20px;
+      border: 1px solid var(--border); background: var(--surface);
+      font-size: 12px; font-weight: 500; color: var(--text-2);
+    }
+
+    /* ── Export formats ────────────────────────────── */
+    .export-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px; margin-top: 32px;
+    }
+    .export-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px;
+      text-align: center;
+    }
+    .export-card .ext { font-size: 18px; font-weight: 700; font-family: 'Geist Mono', monospace; color: var(--accent); }
+    .export-card .desc { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* ── CTA Section ───────────────────────────────── */
+    .cta-section {
+      max-width: 640px; margin: 0 auto;
+      padding: 72px 24px 96px;
+      text-align: center;
+    }
+    .cta-section h2 { font-size: clamp(24px, 4vw, 36px); font-weight: 700; letter-spacing: -1px; color: var(--text); margin-bottom: 14px; }
+    .cta-section p { font-size: 15px; color: var(--text-2); margin-bottom: 32px; }
+
+    /* ── Footer ────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 24px 40px;
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px;
+    }
+    footer span { font-size: 12px; color: var(--muted); }
+    footer a { font-size: 12px; color: var(--text-2); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    @media (max-width: 640px) {
+      nav { padding: 0 20px; }
+      .hero { padding: 64px 20px 48px; }
+      .features, .comparison, .cta-section { padding-left: 20px; padding-right: 20px; }
+      footer { padding: 20px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav>
+    <a class="nav-logo" href="/landing.html">
+      <svg class="nav-logo-icon" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="6" fill="#22d3ee" fill-opacity="0.12"/>
+        <path d="M5 21 L10 13 L15.5 16.5 L21 7" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="10" cy="13" r="1.8" fill="#22d3ee"/>
+        <circle cx="15.5" cy="16.5" r="1.8" fill="#22d3ee"/>
+        <circle cx="21" cy="7" r="1.8" fill="#22d3ee"/>
+      </svg>
+      <span class="nav-logo-text">PlotVision</span>
+    </a>
+    <a class="nav-cta" href="/index.html">
+      Open App →
+    </a>
+  </nav>
+
+  <!-- Hero -->
+  <section class="hero">
+    <div class="hero-badge">
+      <span>✦</span> Free · No signup · Runs in your browser
+    </div>
+    <h1>Extract data from<br><span>any chart image</span></h1>
+    <p>The modern alternative to WebPlotDigitizer. Load a chart, calibrate the axes, click your data points — and export clean numbers in seconds.</p>
+    <div class="hero-actions">
+      <a class="btn-primary" href="/index.html">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Launch PlotVision
+      </a>
+      <a class="btn-ghost" href="https://github.com/Nisarg2543/PlotVision" target="_blank">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.44 9.8 8.2 11.38.6.11.82-.26.82-.58v-2.03c-3.34.73-4.04-1.61-4.04-1.61-.54-1.38-1.33-1.75-1.33-1.75-1.09-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .11-.78.42-1.3.76-1.6-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 3-.4c1.02.005 2.04.14 3 .4 2.28-1.55 3.29-1.23 3.29-1.23.66 1.66.25 2.88.12 3.18.77.84 1.24 1.91 1.24 3.22 0 4.61-2.81 5.63-5.48 5.92.43.37.81 1.1.81 2.22v3.29c0 .32.21.7.82.58C20.56 21.8 24 17.3 24 12c0-6.63-5.37-12-12-12z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <p class="hero-note">100% client-side — your images never leave your device</p>
+  </section>
+
+  <!-- Features -->
+  <section class="features">
+    <p class="section-label">What you get</p>
+    <h2 class="section-title">Everything WebPlotDigitizer<br>should have been</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <div class="feature-icon">⊕</div>
+        <div class="feature-title">Guided Calibration</div>
+        <div class="feature-desc">Step-by-step 4-point axis calibration wizard. Drag calibration points after placing them — no need to redo from scratch.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">✦</div>
+        <div class="feature-title">Auto-Trace</div>
+        <div class="feature-desc">Click a line to pick its color. PlotVision uses LAB color matching to trace the entire curve automatically.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📊</div>
+        <div class="feature-title">Live Preview</div>
+        <div class="feature-desc">See your extracted data rendered as a live chart as you digitize. Spot errors instantly, no export required.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🗂️</div>
+        <div class="feature-title">Multi-Dataset</div>
+        <div class="feature-desc">Multiple data series on one chart? No problem. Manage unlimited datasets, each with its own color and name.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📐</div>
+        <div class="feature-title">Measurement Tools</div>
+        <div class="feature-desc">Measure distances, angles, and polygon areas directly on the chart in calibrated data units.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💾</div>
+        <div class="feature-title">Project Save/Load</div>
+        <div class="feature-desc">Save your entire session — image, calibration, and all data points — as a .pvz file. Resume exactly where you left off.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">📄</div>
+        <div class="feature-title">PDF Support</div>
+        <div class="feature-desc">Open multi-page PDFs directly. Navigate pages and digitize charts from scientific papers without converting first.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">↩</div>
+        <div class="feature-title">Full Undo/Redo</div>
+        <div class="feature-desc">Every action is undoable — point additions, calibration changes, auto-trace commits. 100-step history.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">⌨️</div>
+        <div class="feature-title">Keyboard-First</div>
+        <div class="feature-desc">Every tool, action, and export has a keyboard shortcut. Power users can work entirely without touching the mouse.</div>
+      </div>
+    </div>
+
+    <!-- Axis types -->
+    <div style="margin-top:64px;text-align:center;">
+      <p class="section-label">Supported axis types</p>
+      <div class="axis-grid">
+        <span class="axis-tag">XY Linear</span>
+        <span class="axis-tag">Semi-log (log X)</span>
+        <span class="axis-tag">Semi-log (log Y)</span>
+        <span class="axis-tag">Log-log</span>
+        <span class="axis-tag">Polar (R-θ)</span>
+        <span class="axis-tag">Ternary</span>
+        <span class="axis-tag">Date/Time X</span>
+        <span class="axis-tag">Map / Pixels</span>
+      </div>
+    </div>
+
+    <!-- Export formats -->
+    <div style="margin-top:64px;text-align:center;">
+      <p class="section-label">Export formats</p>
+      <div class="export-grid">
+        <div class="export-card"><div class="ext">CSV</div><div class="desc">Excel/Sheets ready</div></div>
+        <div class="export-card"><div class="ext">XLSX</div><div class="desc">Multi-sheet Excel</div></div>
+        <div class="export-card"><div class="ext">JSON</div><div class="desc">With metadata</div></div>
+        <div class="export-card"><div class="ext">TSV</div><div class="desc">Clipboard paste</div></div>
+        <div class="export-card"><div class="ext">LaTeX</div><div class="desc">tabular env</div></div>
+        <div class="export-card"><div class="ext">.pvz</div><div class="desc">Full project</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Comparison -->
+  <section class="comparison">
+    <p class="section-label">Comparison</p>
+    <h2 class="section-title">vs. WebPlotDigitizer</h2>
+    <table class="compare-table">
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th class="col-pv">PlotVision</th>
+          <th>WebPlotDigitizer</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>Draggable calibration points</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td></tr>
+        <tr><td>Live chart preview while digitizing</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td></tr>
+        <tr><td>Smooth canvas zoom</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td></tr>
+        <tr><td>Project save/load with image</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+        <tr><td>Auto-trace by color</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+        <tr><td>PDF support</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+        <tr><td>Full undo/redo on all actions</td><td><span class="check">✓</span></td><td>Partial</td></tr>
+        <tr><td>Measurement tools</td><td><span class="check">✓</span></td><td><span class="check">✓</span></td></tr>
+        <tr><td>No page reloads / state loss</td><td><span class="check">✓</span></td><td><span class="cross">✗</span></td></tr>
+        <tr><td>Multi-dataset persistent sidebar</td><td><span class="check">✓</span></td><td>Cumbersome</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- CTA -->
+  <section class="cta-section">
+    <h2>Ready to extract some data?</h2>
+    <p>No account. No install. No upload. Just open the app and drop your chart.</p>
+    <a class="btn-primary" href="/index.html" style="display:inline-flex;margin:0 auto;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Launch PlotVision — it's free
+    </a>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <span>© 2026 PlotVision. Built for researchers, by researchers.</span>
+    <div style="display:flex;gap:20px;">
+      <a href="https://github.com/Nisarg2543/PlotVision" target="_blank">GitHub</a>
+      <a href="/index.html">Open App</a>
+    </div>
+  </footer>
+
+</body>
+</html>

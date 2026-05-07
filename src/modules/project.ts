@@ -1,5 +1,5 @@
 import { getState, setState } from '../state/store';
-import { setImageBitmap, fitToWindow, render } from './canvas-engine';
+import { setImageBitmap, fitToWindow, render, getImageBitmap } from './canvas-engine';
 import { showToast } from '../utils/toast';
 import { downloadBlob } from '../utils/file';
 import type { AppState } from '../state/types';
@@ -21,9 +21,7 @@ interface PVZFile {
 export async function saveProject(): Promise<void> {
   const state = getState();
 
-  // Capture the current image as a data URL via offscreen canvas
   let imageDataURL: string | undefined;
-  const { getImageBitmap } = await import('./canvas-engine');
   const bitmap = getImageBitmap();
   if (bitmap) {
     const offscreen = document.createElement('canvas');

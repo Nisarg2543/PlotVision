@@ -7,6 +7,7 @@ import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibr
 import { updatePointData, deletePoint as deleteDataPoint } from '../modules/digitizer';
 import { goToPage } from '../modules/image-loader';
 import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
+import { render as canvasRender } from '../modules/canvas-engine';
 import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints } from '../modules/measure';
 import type { CalibPointRole } from '../state/types';
 
@@ -51,6 +52,10 @@ export function initSidebar(_container: HTMLElement): void {
 
 function renderBody(el: HTMLElement): void {
   el.innerHTML = '';
+  // Clear stale auto-trace preview when leaving trace tab
+  if (activeTab !== 'trace') {
+    (window as any).__autoTraceMod = null;
+  }
   if (activeTab === 'calibrate') renderCalibTab(el);
   else if (activeTab === 'data')    renderDataTab(el);
   else if (activeTab === 'trace')   renderTraceTab(el);
@@ -352,7 +357,7 @@ function renderTraceTab(el: HTMLElement): void {
       lastResult = result;
       setPreviewData(result.previewData, result.width, result.height);
       (window as any).__autoTraceMod = { getPreviewData: () => ({ data: result.previewData, width: result.width, height: result.height }) };
-      import('../modules/canvas-engine').then(m => m.render());
+      canvasRender();
       commitBtn.style.display = 'flex';
       commitBtn.textContent = `Commit ${result.points.length} pts →`;
     }

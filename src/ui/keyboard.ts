@@ -95,13 +95,20 @@ function handleKeyDown(e: KeyboardEvent): void {
       if (id) nudgePoint(e.key, shift ? 10 : 1);
       break;
     }
-    case '?':
-      document.getElementById('shortcuts-modal')?.classList.remove('hidden');
+    case '?': {
+      const m = document.getElementById('shortcuts-modal') as HTMLElement | null;
+      if (m) m.style.display = 'flex';
       break;
-    case 'Escape':
-      document.getElementById('shortcuts-modal')?.classList.add('hidden');
-      document.getElementById('delete-popover')?.classList.add('hidden');
+    }
+    case 'Escape': {
+      const sm = document.getElementById('shortcuts-modal') as HTMLElement | null;
+      if (sm) sm.style.display = 'none';
+      const em = document.getElementById('export-modal') as HTMLElement | null;
+      if (em) em.style.display = 'none';
+      const dp = document.getElementById('delete-popover') as HTMLElement | null;
+      if (dp) dp.style.display = 'none';
       break;
+    }
   }
 }
 

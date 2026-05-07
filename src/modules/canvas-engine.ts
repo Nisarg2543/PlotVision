@@ -1,6 +1,9 @@
 import { getState, setState, subscribe } from '../state/store';
 import { canvasToImage, imageToCanvas, clamp, linearDataToPixel, linearPixelToData, niceGridInterval, distance } from '../utils/math';
+import { showToast } from '../utils/toast';
 import { drawMeasureOverlay, handleMeasureClick, isMeasureActive } from './measure';
+import { drawStripOverlays, getStrips } from './strip-chart';
+import { pickColorAtPixel, setAutoTraceSettings } from './auto-trace';
 import type { Dataset, DataPoint, CalibrationPoint } from '../state/types';
 
 // ImageBitmap stored here — cannot be structuredCloned
@@ -143,8 +146,13 @@ function renderFrame(): void {
   // Auto-trace preview overlay
   drawAutoTracePreview(zoom, panX, panY);
 
-  // Measurement overlay
-  if (isMeasureActive()) {
+  // Strip chart overlays
+  if (getStrips().length > 0) {
+    drawStripOverlays(ctx, zoom, panX, panY, mainCanvas.clientWidth, imageToCanvas);
+  }
+
+  // Measurement overlay — only draw when tool is active
+  if (state.activeTool === 'measure' && isMeasureActive()) {
     drawMeasureOverlay(ctx, zoom, panX, panY, imageToCanvas);
   }
 
@@ -405,20 +413,11 @@ function handleMouseDown(e: MouseEvent): void {
     } else if (state.activeTool === 'measure') {
       handleMeasureClick(imgX, imgY);
     } else if (state.activeTool === 'auto-trace') {
-      // Click to pick color from image
-      import('./auto-trace').then(m => {
-        const hex = m.pickColorAtPixel(imgX, imgY);
-        m.setAutoTraceSettings({ targetColor: hex });
-        // Update color picker in sidebar if visible
-        const picker = document.querySelector('input[type="color"]') as HTMLInputElement | null;
-        if (picker) picker.value = hex;
-        import('../utils/toast').then(t => t.showToast(`Color picked: ${hex}`, 'info', 1500));
-      });
-    } else if (state.activeTool === 'pointer') {
-      // Pan with pointer too (space+drag handled by keyboard)
-      isPanning = true;
-      panStartX = x; panStartY = y;
-      panStartOffsetX = panX; panStartOffsetY = panY;
+      const hex = pickColorAtPixel(imgX, imgY);
+      setAutoTraceSettings({ targetColor: hex });
+      const picker = document.querySelector('input[type="color"]') as HTMLInputElement | null;
+      if (picker) picker.value = hex;
+      showToast(`Color picked: ${hex}`, 'info', 1500);
     }
   }
 }
