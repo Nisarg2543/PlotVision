@@ -85,7 +85,8 @@ export async function advanceBatch(): Promise<void> {
   } catch (err) {
     item.status = 'skipped';
     showToast(`Skipped "${item.file.name}": ${(err as Error).message}`, 'warning');
-    await advanceBatch();
+    // Use void to explicitly not await — prevents unbounded recursion on many errors
+    void advanceBatch();
   }
 }
 
@@ -93,14 +94,14 @@ export function skipCurrent(): void {
   if (currentIndex >= 0 && currentIndex < queue.length) {
     queue[currentIndex].status = 'skipped';
   }
-  advanceBatch();
+  void advanceBatch();
 }
 
 export function markCurrentDone(): void {
   if (currentIndex >= 0 && currentIndex < queue.length) {
     queue[currentIndex].status = 'done';
   }
-  advanceBatch();
+  void advanceBatch();
 }
 
 export function clearBatch(): void {

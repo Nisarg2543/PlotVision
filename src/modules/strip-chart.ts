@@ -34,28 +34,37 @@ export function startDefiningStrip(name: string, color: string): void {
   showToast('Click the TOP edge of the strip on the canvas', 'info', 3000);
 }
 
-export function handleStripClick(imgX: number, imgY: number, yMinData: number, yMaxData: number): void {
+/**
+ * Handle canvas click during strip definition.
+ * First click sets topPx. Second click sets bottomPx and prompts for Y values via UI.
+ * yMinData and yMaxData are provided when the user finishes entering values.
+ */
+export function handleStripClick(imgX: number, imgY: number): void {
   if (!definingStrip) return;
+  void imgX;
 
   if (definingStrip.topPx === undefined) {
     definingStrip.topPx = imgY;
     showToast('Now click the BOTTOM edge of the strip', 'info', 3000);
   } else {
     definingStrip.bottomPx = imgY;
-    definingStrip.yMinData = yMinData;
-    definingStrip.yMaxData = yMaxData;
-
-    // Ensure top < bottom (user may click from bottom up)
+    // Normalise direction — top must have smaller Y pixel value (higher on screen)
     if (definingStrip.topPx > definingStrip.bottomPx) {
       [definingStrip.topPx, definingStrip.bottomPx] = [definingStrip.bottomPx, definingStrip.topPx];
-      [definingStrip.yMinData, definingStrip.yMaxData] = [definingStrip.yMaxData, definingStrip.yMinData];
     }
-
+    // Default Y data range; user can edit in the strip list UI
+    definingStrip.yMinData = 0;
+    definingStrip.yMaxData = 1;
     strips.push(definingStrip as Strip);
+    const stripName = (definingStrip as Strip).name;
     definingStrip = null;
-    showToast(`Strip "${(definingStrip as any)?.name ?? strips[strips.length - 1].name}" defined`, 'success');
+    showToast(`Strip "${stripName}" defined — set Y range in strip list`, 'success');
   }
-  void imgX; // X position not used for strip definition
+}
+
+export function updateStripYRange(id: string, yMin: number, yMax: number): void {
+  const strip = strips.find(s => s.id === id);
+  if (strip) { strip.yMinData = yMin; strip.yMaxData = yMax; }
 }
 
 export function removeStrip(id: string): void {

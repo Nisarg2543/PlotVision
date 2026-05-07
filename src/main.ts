@@ -11,52 +11,50 @@ import { handleCalibClick, handleCalibDrag } from './modules/calibration';
 import { handleDigitizerClick, deletePoint, pushHistoryOnDragEnd } from './modules/digitizer';
 import { setupAutosave } from './modules/project';
 import { initOnboarding } from './ui/onboarding';
-import { startMeasure } from './modules/measure';
 
 function main(): void {
-  const canvasContainer = document.getElementById('canvas-container')!;
-  const topbar = document.getElementById('topbar')!;
-  const leftPanel = document.getElementById('left-panel')!;
-  const rightPanel = document.getElementById('right-panel')!;
+  const canvasContainer = document.getElementById('canvas-container');
+  const topbar          = document.getElementById('topbar');
+  const leftPanel       = document.getElementById('left-panel');
+  const rightPanel      = document.getElementById('right-panel');
 
-  // Initialize canvas engine first (other modules depend on it)
+  if (!canvasContainer || !topbar || !leftPanel || !rightPanel) {
+    console.error('PlotVision: required DOM elements missing — check index.html');
+    return;
+  }
+
+  // Canvas engine first — other modules depend on it
   initCanvas(canvasContainer);
 
-  // Wire up canvas callbacks from other modules
+  // Wire canvas callbacks from feature modules
   setCanvasCallbacks({
-    onCalibClick: handleCalibClick,
+    onCalibClick:   handleCalibClick,
     onDigitizerClick: handleDigitizerClick,
-    onCalibDrag: handleCalibDrag,
-    onDeletePoint: (datasetId, pointId) => deletePoint(datasetId, pointId),
-    onPointDragEnd: (_datasetId, _pointId, _x, _y) => {
-      // History push happens after drag for perf; digitizer handles it
-      pushHistoryOnDragEnd();
-    },
+    onCalibDrag:    handleCalibDrag,
+    onDeletePoint:  (datasetId, pointId) => deletePoint(datasetId, pointId),
+    onPointDragEnd: () => pushHistoryOnDragEnd(),
   });
 
-  // Initialize image loading (drag-drop, paste, file picker)
+  // Image loading (drag-drop, paste, file picker, PDF)
   initImageLoader(canvasContainer);
 
-  // Initialize UI panels
+  // UI panels
   initToolbar(topbar);
   initLeftPanel(leftPanel);
   initSidebar(rightPanel);
-  initPreviewPanel(rightPanel);
+  initPreviewPanel(rightPanel); // subscribes to state; renders into #preview-chart in Data tab
 
-  // Initialize keyboard shortcuts
+  // Keyboard shortcuts
   initKeyboard();
 
-  // Create default dataset so app is immediately usable
+  // Default dataset so app is usable immediately
   addDataset('Dataset 1');
 
-  // Auto-save protection (warns on tab close if unsaved data)
+  // Warn on tab close if unsaved data exists
   setupAutosave();
 
-  // Initialize onboarding tour for first-time users
+  // First-time onboarding tour
   initOnboarding();
-
-  // Activate measure module so it can receive canvas clicks
-  startMeasure();
 }
 
 main();

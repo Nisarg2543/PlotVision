@@ -8,6 +8,7 @@ import { updatePointData, deletePoint as deleteDataPoint } from '../modules/digi
 import { goToPage } from '../modules/image-loader';
 import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
 import { render as canvasRender } from '../modules/canvas-engine';
+import { updatePreview } from '../ui/preview-panel';
 import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints } from '../modules/measure';
 import type { CalibPointRole } from '../state/types';
 
@@ -26,9 +27,12 @@ const STEP_TO_ROLE: Partial<Record<string, CalibPointRole>> = {
   'await-y1-value': 'y1', 'await-y2-value': 'y2',
 };
 
+let sidebarDebounce: ReturnType<typeof setTimeout> | null = null;
+
 export function initSidebar(_container: HTMLElement): void {
-  const tabsEl = document.getElementById('panel-tabs')!;
-  const bodyEl = document.getElementById('panel-body')!;
+  const tabsEl = document.getElementById('panel-tabs');
+  const bodyEl = document.getElementById('panel-body');
+  if (!tabsEl || !bodyEl) return;
 
   tabsEl.innerHTML = '';
   TABS.forEach(t => {
@@ -37,6 +41,11 @@ export function initSidebar(_container: HTMLElement): void {
     btn.textContent = t.label;
     btn.dataset.tab = t.id;
     btn.addEventListener('click', () => {
+      // Clear auto-trace preview when leaving trace tab
+      if (activeTab === 'trace' && t.id !== 'trace') {
+        window.__autoTraceMod = null;
+        clearPreview();
+      }
       activeTab = t.id;
       tabsEl.querySelectorAll('.panel-tab').forEach(b =>
         b.classList.toggle('active', (b as HTMLElement).dataset.tab === t.id)
@@ -47,15 +56,16 @@ export function initSidebar(_container: HTMLElement): void {
   });
 
   renderBody(bodyEl);
-  subscribe(() => renderBody(bodyEl));
+
+  // Debounce re-renders — state can change on every wheel tick (zoom/pan)
+  subscribe(() => {
+    if (sidebarDebounce) clearTimeout(sidebarDebounce);
+    sidebarDebounce = setTimeout(() => renderBody(bodyEl), 60);
+  });
 }
 
 function renderBody(el: HTMLElement): void {
   el.innerHTML = '';
-  // Clear stale auto-trace preview when leaving trace tab
-  if (activeTab !== 'trace') {
-    (window as any).__autoTraceMod = null;
-  }
   if (activeTab === 'calibrate') renderCalibTab(el);
   else if (activeTab === 'data')    renderDataTab(el);
   else if (activeTab === 'trace')   renderTraceTab(el);
@@ -307,6 +317,36 @@ function renderDataTab(el: HTMLElement): void {
       e => setState(d => { d.canvas.imageFilters.grayscale = (e.target as HTMLInputElement).checked; })));
     el.appendChild(filtSec);
   }
+
+  // Inline preview chart at the bottom of Data tab
+  const hasPoints = state.datasets.some(d => d.visible && d.points.length > 0);
+  if (hasPoints) {
+    const prevSec = makeSec('Preview');
+    const pb = makeSecBody(prevSec);
+
+    const modeRow = makeDiv('');
+    modeRow.style.cssText = 'display:flex;gap:5px;margin-bottom:6px;';
+    (['scatter','line'] as const).forEach(m => {
+      const btn = makeBtn(m === 'scatter' ? 'Scatter' : 'Line', `btn btn-sm ${state.ui.previewMode === m ? 'btn-primary' : 'btn-ghost'}`);
+      btn.style.flex = '1';
+      btn.addEventListener('click', () => setState(d => { d.ui.previewMode = m; }));
+      modeRow.appendChild(btn);
+    });
+    pb.appendChild(modeRow);
+
+    const canvasWrap = makeDiv('');
+    canvasWrap.style.cssText = 'position:relative;height:160px;';
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.id = 'preview-chart';
+    previewCanvas.style.cssText = 'width:100%;height:100%;';
+    canvasWrap.appendChild(previewCanvas);
+    pb.appendChild(canvasWrap);
+
+    el.appendChild(prevSec);
+
+    // Render chart after DOM is attached
+    requestAnimationFrame(() => updatePreview());
+  }
 }
 
 // ── Trace ──────────────────────────────────────────────────────
@@ -356,7 +396,7 @@ function renderTraceTab(el: HTMLElement): void {
     if (result) {
       lastResult = result;
       setPreviewData(result.previewData, result.width, result.height);
-      (window as any).__autoTraceMod = { getPreviewData: () => ({ data: result.previewData, width: result.width, height: result.height }) };
+      window.__autoTraceMod = { getPreviewData: () => ({ data: result.previewData, width: result.width, height: result.height }) };
       canvasRender();
       commitBtn.style.display = 'flex';
       commitBtn.textContent = `Commit ${result.points.length} pts →`;
@@ -370,7 +410,7 @@ function renderTraceTab(el: HTMLElement): void {
     if (lastResult) {
       commitAutoTrace(lastResult.points);
       lastResult = null;
-      (window as any).__autoTraceMod = null;
+      window.__autoTraceMod = null;
       commitBtn.style.display = 'none';
     }
   });
@@ -379,7 +419,7 @@ function renderTraceTab(el: HTMLElement): void {
   const clearBtn = makeBtn('Clear Preview', 'btn btn-ghost');
   clearBtn.addEventListener('click', () => {
     clearPreview();
-    (window as any).__autoTraceMod = null;
+    window.__autoTraceMod = null;
     lastResult = null;
     commitBtn.style.display = 'none';
   });

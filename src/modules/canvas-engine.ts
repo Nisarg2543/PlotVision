@@ -9,6 +9,10 @@ import type { Dataset, DataPoint, CalibrationPoint } from '../state/types';
 // ImageBitmap stored here — cannot be structuredCloned
 let bitmap: ImageBitmap | null = null;
 
+// Typed interface for the auto-trace preview bridge
+interface AutoTraceMod { getPreviewData: () => { data: Uint8ClampedArray; width: number; height: number } | null; }
+declare global { interface Window { __autoTraceMod: AutoTraceMod | null; } }
+
 // Internal interaction state
 let isPanning = false;
 let panStartX = 0, panStartY = 0;
@@ -167,9 +171,7 @@ function renderFrame(): void {
 }
 
 function drawAutoTracePreview(zoom: number, panX: number, panY: number): void {
-  // Lazy import to avoid circular dependency at module load time
-  // getPreviewData is only defined after auto-trace module loads
-  const mod = (window as any).__autoTraceMod;
+  const mod = window.__autoTraceMod;
   if (!mod) return;
   const preview = mod.getPreviewData();
   if (!preview) return;
@@ -177,7 +179,7 @@ function drawAutoTracePreview(zoom: number, panX: number, panY: number): void {
   const tmpCanvas = document.createElement('canvas');
   tmpCanvas.width = width; tmpCanvas.height = height;
   const tmpCtx = tmpCanvas.getContext('2d')!;
-  const imgData = new ImageData(data, width, height);
+  const imgData = new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), width, height);
   tmpCtx.putImageData(imgData, 0, 0);
   ctx.drawImage(tmpCanvas, panX, panY, width * zoom, height * zoom);
 }
@@ -523,25 +525,41 @@ function handleDblClick(e: MouseEvent): void {
   });
 }
 
-function showDeletePopover(clientX: number, clientY: number): void {
-  const popover = document.getElementById('delete-popover')!;
-  popover.style.left = clientX + 'px';
-  popover.style.top = clientY + 'px';
-  popover.classList.remove('hidden');
+// Single tracked outside-click handler to prevent listener accumulation
+let popoverOutsideHandler: ((e: MouseEvent) => void) | null = null;
 
-  // Auto-hide on outside click
-  const handler = (e: MouseEvent) => {
+function showDeletePopover(clientX: number, clientY: number): void {
+  const popover = document.getElementById('delete-popover');
+  if (!popover) return;
+
+  // Remove any previous outside-click listener
+  if (popoverOutsideHandler) {
+    document.removeEventListener('mousedown', popoverOutsideHandler);
+    popoverOutsideHandler = null;
+  }
+
+  // Clamp position so popover stays within viewport
+  const pw = 180, ph = 80;
+  popover.style.left = Math.min(clientX, window.innerWidth - pw - 8) + 'px';
+  popover.style.top  = Math.min(clientY, window.innerHeight - ph - 8) + 'px';
+  popover.style.display = 'block';
+
+  popoverOutsideHandler = (e: MouseEvent) => {
     if (!popover.contains(e.target as Node)) {
       hideDeletePopover();
-      document.removeEventListener('mousedown', handler);
     }
   };
-  setTimeout(() => document.addEventListener('mousedown', handler), 0);
+  setTimeout(() => document.addEventListener('mousedown', popoverOutsideHandler!), 0);
 }
 
 function hideDeletePopover(): void {
-  document.getElementById('delete-popover')?.classList.add('hidden');
+  const popover = document.getElementById('delete-popover');
+  if (popover) popover.style.display = 'none';
   deletePopoverTarget = null;
+  if (popoverOutsideHandler) {
+    document.removeEventListener('mousedown', popoverOutsideHandler);
+    popoverOutsideHandler = null;
+  }
 }
 
 function getCursorForTool(tool: string): string {
@@ -557,7 +575,11 @@ function getCursorForTool(tool: string): string {
 export function fitToWindow(): void {
   if (!bitmap) return;
   const rect = container.getBoundingClientRect();
-  const zoom = Math.min(rect.width / bitmap.width, rect.height / bitmap.height) * 0.92;
+  if (rect.width === 0 || rect.height === 0) return;
+  const zoom = clamp(
+    Math.min(rect.width / bitmap.width, rect.height / bitmap.height) * 0.92,
+    0.02, 80
+  );
   const panX = (rect.width - bitmap.width * zoom) / 2;
   const panY = (rect.height - bitmap.height * zoom) / 2;
   setState(draft => { draft.canvas.zoom = zoom; draft.canvas.panX = panX; draft.canvas.panY = panY; });

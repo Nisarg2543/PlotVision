@@ -1,12 +1,14 @@
 import { getState, setState } from '../state/store';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
+import { showConfirm } from '../utils/confirm';
 import { uid } from '../utils/math';
 import type { Dataset } from '../state/types';
 
+// Perceptually distinct colors visible on both light and dark backgrounds
 const PALETTE = [
-  '#22d3ee', '#f59e0b', '#34d399', '#f87171',
-  '#a78bfa', '#fb923c', '#60a5fa', '#e879f9',
+  '#2563eb', '#d97706', '#16a34a', '#dc2626',
+  '#7c3aed', '#0891b2', '#db2777', '#65a30d',
 ];
 
 let paletteIndex = 0;
@@ -30,12 +32,13 @@ export function addDataset(name?: string, color?: string): string {
   return id;
 }
 
-export function removeDataset(id: string): void {
+export async function removeDataset(id: string): Promise<void> {
   const state = getState();
   const ds = state.datasets.find(d => d.id === id);
   if (!ds) return;
 
-  if (!confirm(`Delete dataset "${ds.name}"? This cannot be undone easily.`)) return;
+  const ok = await showConfirm(`Delete dataset "${ds.name}"? This will remove all its points.`, 'Delete', true);
+  if (!ok) return;
 
   pushHistory('Delete dataset');
   setState(draft => {
@@ -59,9 +62,11 @@ export function toggleDatasetVisibility(id: string): void {
 }
 
 export function renameDataset(id: string, name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
   setState(draft => {
     const ds = draft.datasets.find(d => d.id === id);
-    if (ds) ds.name = name.trim() || ds.name;
+    if (ds) ds.name = trimmed;
   });
 }
 
@@ -100,10 +105,15 @@ export function sortDatasetPoints(id: string, by: 'x' | 'y'): void {
   });
 }
 
-export function clearDatasetPoints(id: string): void {
+export async function clearDatasetPoints(id: string): Promise<void> {
   const ds = getState().datasets.find(d => d.id === id);
   if (!ds || ds.points.length === 0) return;
-  if (!confirm(`Clear all ${ds.points.length} points in "${ds.name}"?`)) return;
+
+  const ok = await showConfirm(
+    `Clear all ${ds.points.length} points in "${ds.name}"?`,
+    'Clear all', true
+  );
+  if (!ok) return;
 
   pushHistory('Clear dataset');
   setState(draft => {

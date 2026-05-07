@@ -1,27 +1,26 @@
 import { getState, setState } from '../state/store';
-import { uid } from '../utils/math';
-import { isTransformValid } from '../utils/math';
+import { uid, isTransformValid } from '../utils/math';
 import { showToast } from '../utils/toast';
 import type { CalibrationPoint, CalibrationStep, CoordinateTransform } from '../state/types';
 
+// 'complete' is intentionally the terminal sentinel, not a place/await step
 const STEP_ORDER: CalibrationStep[] = [
   'place-x1', 'await-x1-value',
   'place-x2', 'await-x2-value',
   'place-y1', 'await-y1-value',
   'place-y2', 'await-y2-value',
-  'complete',
 ];
 
 const STEP_PROMPTS: Partial<Record<CalibrationStep, string>> = {
-  'place-x1': 'Click a known X reference point (e.g. leftmost X axis tick)',
-  'await-x1-value': 'Enter the X value for X1',
-  'place-x2': 'Click a second known X reference point (e.g. rightmost X axis tick)',
-  'await-x2-value': 'Enter the X value for X2',
-  'place-y1': 'Click a known Y reference point (e.g. bottom Y axis tick)',
-  'await-y1-value': 'Enter the Y value for Y1',
-  'place-y2': 'Click a second known Y reference point (e.g. top Y axis tick)',
-  'await-y2-value': 'Enter the Y value for Y2',
-  'complete': 'Calibration complete!',
+  'place-x1':      'Click X1 — a known point on the X axis (e.g. leftmost tick)',
+  'await-x1-value':'Enter the X value at X1',
+  'place-x2':      'Click X2 — a second known point on the X axis',
+  'await-x2-value':'Enter the X value at X2',
+  'place-y1':      'Click Y1 — a known point on the Y axis (e.g. bottom tick)',
+  'await-y1-value':'Enter the Y value at Y1',
+  'place-y2':      'Click Y2 — a second known point on the Y axis',
+  'await-y2-value':'Enter the Y value at Y2',
+  'complete':      'Calibration complete ✓',
 };
 
 export function startCalibration(): void {
@@ -45,12 +44,11 @@ export function handleCalibClick(imgX: number, imgY: number): void {
   const role = roleMap[step]!;
 
   setState(draft => {
-    // Remove existing point with same role
     draft.calibration.points = draft.calibration.points.filter(p => p.role !== role);
     draft.calibration.points.push({ id: uid(), role, pixelX: imgX, pixelY: imgY, dataX: null, dataY: null });
-    // Advance to await-value step
     const idx = STEP_ORDER.indexOf(step);
-    draft.calibration.step = STEP_ORDER[idx + 1]!;
+    // Advance to the next step (always an await-value step)
+    draft.calibration.step = STEP_ORDER[idx + 1] ?? 'complete';
   });
 }
 
@@ -66,6 +64,8 @@ export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr
     y1: 'await-y1-value', y2: 'await-y2-value',
   };
   const currentAwaitStep = awaitStepMap[role];
+  const idx = STEP_ORDER.indexOf(currentAwaitStep);
+  const isLastStep = idx === STEP_ORDER.length - 1;
 
   setState(draft => {
     const pt = draft.calibration.points.find(p => p.role === role);
@@ -73,11 +73,8 @@ export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr
     if (role === 'x1' || role === 'x2') pt.dataX = value;
     else pt.dataY = value;
 
-    const idx = STEP_ORDER.indexOf(currentAwaitStep);
-    const nextStep = STEP_ORDER[idx + 1];
-    draft.calibration.step = nextStep ?? 'complete';
-
-    if (nextStep === 'complete' || !nextStep) {
+    if (isLastStep) {
+      // All 4 points confirmed — try to build transform
       const transform = buildTransform(draft.calibration.points);
       if (transform && isTransformValid(transform)) {
         draft.calibration.transform = transform;
@@ -85,13 +82,19 @@ export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr
         draft.calibration.step = 'complete';
         draft.activeTool = 'pointer';
       } else {
-        draft.calibration.step = 'place-x1'; // restart
+        // Invalid calibration — restart wizard
+        draft.calibration.step = 'place-x1';
+        draft.calibration.points = [];
       }
+    } else {
+      // Move to the next place step
+      draft.calibration.step = STEP_ORDER[idx + 1] ?? 'complete';
     }
   });
 
-  const { isComplete } = getState().calibration;
-  if (isComplete) showToast('Calibration complete!', 'success');
+  if (getState().calibration.isComplete) {
+    showToast('Calibration complete!', 'success');
+  }
 }
 
 function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null {
@@ -104,10 +107,10 @@ function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null 
   if (x1.dataX === null || x2.dataX === null || y1.dataY === null || y2.dataY === null) return null;
 
   if (x1.pixelX === x2.pixelX) {
-    showToast('X calibration points must differ in horizontal position', 'error'); return null;
+    showToast('X1 and X2 must differ horizontally', 'error'); return null;
   }
   if (y1.pixelY === y2.pixelY) {
-    showToast('Y calibration points must differ in vertical position', 'error'); return null;
+    showToast('Y1 and Y2 must differ vertically', 'error'); return null;
   }
   if (x1.dataX === x2.dataX) {
     showToast('X1 and X2 values must be different', 'error'); return null;
@@ -150,14 +153,12 @@ export function resetCalibration(): void {
 }
 
 export function getWizardPrompt(): string {
-  const { step } = getState().calibration;
-  return STEP_PROMPTS[step] ?? '';
+  return STEP_PROMPTS[getState().calibration.step] ?? '';
 }
 
 export function getCalibStepIndex(): number {
   const { step } = getState().calibration;
-  const placeSteps: CalibrationStep[] = ['place-x1', 'await-x1-value', 'place-x2', 'await-x2-value',
-    'place-y1', 'await-y1-value', 'place-y2', 'await-y2-value'];
-  const idx = placeSteps.indexOf(step);
-  return idx === -1 ? (step === 'complete' ? 8 : -1) : idx;
+  if (step === 'complete') return STEP_ORDER.length;
+  const idx = STEP_ORDER.indexOf(step);
+  return idx === -1 ? 0 : idx;
 }
