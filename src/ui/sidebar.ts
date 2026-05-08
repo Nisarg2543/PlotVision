@@ -11,6 +11,7 @@ import { defaultBarSettings, detectBars } from '../modules/bar-detector';
 import { defaultScatterSettings, detectScatterPoints } from '../modules/scatter-detector';
 import type { BarDetectorSettings } from '../modules/bar-detector';
 import type { ScatterDetectorSettings } from '../modules/scatter-detector';
+import { startPie, resetPie, undoLastBoundary, commitPieSectors, computeSectors, getPieStep, getPieBoundaryCount, setPieTotalValue, getPieTotalValue } from '../modules/pie-detector';
 import { render as canvasRender } from '../modules/canvas-engine';
 import type { ExtractionMode } from '../state/types';
 import { updatePreview } from '../ui/preview-panel';
@@ -440,12 +441,14 @@ function renderTraceTab(el: HTMLElement): void {
     { id: 'curve',   label: 'Line / Curve',   hint: 'Traces continuous curves and lines' },
     { id: 'bar',     label: 'Bar Chart',       hint: 'Detects vertical or horizontal bars' },
     { id: 'scatter', label: 'Scatter Points',  hint: 'Finds discrete point markers' },
+    { id: 'pie',     label: 'Pie Chart',       hint: 'Click-based angle digitizer for pie/donut charts' },
   ];
   const modeRow = makeDiv(''); modeRow.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
   modes.forEach(m => {
     const btn = makeBtn(m.label, `btn btn-sm ${traceExtractionMode === m.id ? 'btn-primary' : 'btn-ghost'}`);
     btn.title = m.hint;
     btn.addEventListener('click', () => {
+      if (traceExtractionMode === 'pie' && m.id !== 'pie') resetPie();
       traceExtractionMode = m.id;
       lastResult = null;
       window.__autoTraceMod = null;
@@ -456,6 +459,12 @@ function renderTraceTab(el: HTMLElement): void {
   });
   mb.appendChild(modeRow);
   el.appendChild(modeSec);
+
+  // Pie mode: show dedicated wizard UI, skip color/bg/settings/actions
+  if (traceExtractionMode === 'pie') {
+    renderPieWizard(el);
+    return;
+  }
 
   // Target color (shared across all modes)
   const curColor = traceExtractionMode === 'curve' ? ats.targetColor
@@ -601,6 +610,112 @@ function renderTraceTab(el: HTMLElement): void {
   ab.appendChild(clearBtn);
 
   el.appendChild(actSec);
+}
+
+// ── Pie Wizard ─────────────────────────────────────────────────
+
+function renderPieWizard(el: HTMLElement): void {
+  const step = getPieStep();
+  const boundaryCount = getPieBoundaryCount();
+
+  // Total value input (always visible)
+  const valSec = makeSec('Total Value');
+  const vb = makeSecBody(valSec);
+  const valRow = makeRow('start'); valRow.style.gap = '8px';
+  const valInput = document.createElement('input');
+  valInput.type = 'number'; valInput.className = 'pv-input';
+  valInput.min = '0'; valInput.value = String(getPieTotalValue());
+  valInput.placeholder = '100';
+  valInput.style.cssText = 'width:80px;';
+  const valLabel = makeSpan('(e.g. 100 for percentages)', 'font-size:11px;color:var(--color-muted);');
+  valRow.appendChild(valInput); valRow.appendChild(valLabel);
+  vb.appendChild(valRow);
+  valInput.addEventListener('change', () => {
+    const v = parseFloat(valInput.value);
+    if (!isNaN(v) && v > 0) setPieTotalValue(v);
+  });
+  el.appendChild(valSec);
+
+  // Steps
+  const wizSec = makeSec('Wizard');
+  const wb = makeSecBody(wizSec);
+
+  if (step === 'idle') {
+    const hint = makeDiv('');
+    hint.style.cssText = 'font-size:12px;color:var(--color-text-2);margin-bottom:8px;line-height:1.5;';
+    hint.textContent = 'Digitize pie/donut charts by clicking the center, a reference direction, then each sector boundary clockwise.';
+    wb.appendChild(hint);
+
+    const startBtn = makeBtn('Start Pie Extraction →', 'btn btn-primary');
+    startBtn.addEventListener('click', () => {
+      const v = parseFloat(valInput.value) || 100;
+      setPieTotalValue(v);
+      startPie(v);
+      initSidebarDebounced();
+    });
+    wb.appendChild(startBtn);
+
+  } else {
+    // Progress pills
+    const stepsInfo = [
+      { label: 'Center',    done: step !== 'place-center' },
+      { label: 'Reference', done: step === 'place-sectors' },
+      { label: `${boundaryCount} sector${boundaryCount !== 1 ? 's' : ''}`, done: false },
+    ];
+    const pills = makeDiv('');
+    pills.style.cssText = 'display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;';
+    stepsInfo.forEach(s => {
+      const p = makeDiv('');
+      p.style.cssText = `font-size:10px;padding:2px 8px;border-radius:99px;font-weight:600;
+        background:${s.done ? 'var(--color-accent)' : 'var(--color-faint)'};
+        color:${s.done ? '#fff' : 'var(--color-muted)'};`;
+      p.textContent = s.label;
+      pills.appendChild(p);
+    });
+    wb.appendChild(pills);
+
+    // Current instruction
+    const instrMap: Record<string, string> = {
+      'place-center':    '① Click the center of the pie chart on the canvas',
+      'place-reference': '② Click the reference direction (e.g. 12 o\'clock)',
+      'place-sectors':   `③ Click sector boundaries clockwise (${boundaryCount} added) — then Finish`,
+    };
+    const instr = makeDiv('');
+    instr.style.cssText = 'font-size:12px;color:var(--color-text-2);margin-bottom:8px;line-height:1.5;border-left:2px solid var(--color-accent);padding-left:8px;';
+    instr.textContent = instrMap[step] ?? '';
+    wb.appendChild(instr);
+
+    // Computed sectors preview (when we have at least 1 boundary)
+    if (step === 'place-sectors' && boundaryCount >= 1) {
+      const sectors = computeSectors();
+      const previewWrap = makeDiv('');
+      previewWrap.style.cssText = 'margin-bottom:8px;';
+      const totalVal = getPieTotalValue();
+      sectors.forEach(s => {
+        const row = makeDiv('');
+        row.style.cssText = 'display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid var(--color-faint);color:var(--color-text-2);';
+        row.innerHTML = `<span>${s.label}</span><span style="font-family:var(--font-mono);">${s.angleDeg.toFixed(1)}° &nbsp; ${s.value.toFixed(totalVal === 100 ? 1 : 4)}</span>`;
+        previewWrap.appendChild(row);
+      });
+      wb.appendChild(previewWrap);
+
+      const btnRow = makeDiv(''); btnRow.style.cssText = 'display:flex;gap:6px;';
+      const undoBtn = makeBtn('Undo last', 'btn btn-ghost btn-sm');
+      undoBtn.addEventListener('click', () => { undoLastBoundary(); initSidebarDebounced(); });
+      const finishBtn = makeBtn(`Commit ${sectors.length} sectors →`, 'btn btn-success');
+      finishBtn.addEventListener('click', () => { commitPieSectors(); initSidebarDebounced(); });
+      btnRow.appendChild(undoBtn); btnRow.appendChild(finishBtn);
+      wb.appendChild(btnRow);
+    }
+
+    // Reset button
+    const resetBtn = makeBtn('Reset', 'btn btn-ghost btn-sm');
+    resetBtn.style.marginTop = '6px';
+    resetBtn.addEventListener('click', () => { resetPie(); initSidebarDebounced(); });
+    wb.appendChild(resetBtn);
+  }
+
+  el.appendChild(wizSec);
 }
 
 // ── Measure ────────────────────────────────────────────────────

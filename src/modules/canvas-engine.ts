@@ -54,7 +54,10 @@ function buildProcessedImageData(): ImageData {
 
 // Typed interface for the auto-trace preview bridge
 interface AutoTraceMod { getPreviewData: () => { data: Uint8ClampedArray; width: number; height: number } | null; }
-declare global { interface Window { __autoTraceMod: AutoTraceMod | null; } }
+// Typed interface for the pie-chart overlay bridge
+interface PieOverlay { step: string; centerX: number; centerY: number; refX: number; refY: number; boundaries: { x: number; y: number }[]; }
+interface PieMod { getPieOverlay: () => PieOverlay | null; }
+declare global { interface Window { __autoTraceMod: AutoTraceMod | null; __pieMod: PieMod | null; } }
 
 // Internal interaction state
 let isPanning = false;
@@ -90,6 +93,7 @@ let onDigitizerClick: ((imgX: number, imgY: number) => void) | null = null;
 let onCalibDrag: ((id: string, imgX: number, imgY: number) => void) | null = null;
 let onPointDragEnd: ((datasetId: string, pointId: string, imgX: number, imgY: number) => void) | null = null;
 let onDeletePoint: ((datasetId: string, pointId: string) => void) | null = null;
+let onPieClick: ((imgX: number, imgY: number) => void) | null = null;
 
 export function setCanvasCallbacks(cbs: {
   onCalibClick?: (x: number, y: number) => void;
@@ -97,12 +101,14 @@ export function setCanvasCallbacks(cbs: {
   onCalibDrag?: (id: string, x: number, y: number) => void;
   onPointDragEnd?: (datasetId: string, pointId: string, x: number, y: number) => void;
   onDeletePoint?: (datasetId: string, pointId: string) => void;
+  onPieClick?: (x: number, y: number) => void;
 }): void {
   if (cbs.onCalibClick) onCalibClick = cbs.onCalibClick;
   if (cbs.onDigitizerClick) onDigitizerClick = cbs.onDigitizerClick;
   if (cbs.onCalibDrag) onCalibDrag = cbs.onCalibDrag;
   if (cbs.onPointDragEnd) onPointDragEnd = cbs.onPointDragEnd;
   if (cbs.onDeletePoint) onDeletePoint = cbs.onDeletePoint;
+  if (cbs.onPieClick) onPieClick = cbs.onPieClick;
 }
 
 export function setImageBitmap(bmp: ImageBitmap): void {
@@ -213,6 +219,9 @@ function renderFrame(): void {
   // Auto-trace preview overlay
   drawAutoTracePreview(zoom, panX, panY);
 
+  // Pie chart extraction overlay
+  drawPieOverlay(zoom, panX, panY);
+
   // Strip chart overlays
   if (getStrips().length > 0) {
     drawStripOverlays(ctx, zoom, panX, panY, mainCanvas.clientWidth, imageToCanvas);
@@ -245,6 +254,67 @@ function drawAutoTracePreview(zoom: number, panX: number, panY: number): void {
   const imgData = new ImageData(new Uint8ClampedArray(data.buffer as ArrayBuffer), width, height);
   tmpCtx.putImageData(imgData, 0, 0);
   ctx.drawImage(tmpCanvas, panX, panY, width * zoom, height * zoom);
+}
+
+function drawPieOverlay(zoom: number, panX: number, panY: number): void {
+  const mod = window.__pieMod;
+  if (!mod) return;
+  const overlay = mod.getPieOverlay();
+  if (!overlay) return;
+
+  const { step, centerX, centerY, refX, refY, boundaries } = overlay;
+
+  const toCanvas = (ix: number, iy: number) => imageToCanvas(ix, iy, zoom, panX, panY);
+
+  // Center point
+  if (step !== 'place-center') {
+    const { canvasX: cx, canvasY: cy } = toCanvas(centerX, centerY);
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(37,99,235,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Reference spoke
+    if (step !== 'place-reference') {
+      const { canvasX: rx, canvasY: ry } = toCanvas(refX, refY);
+      ctx.beginPath();
+      ctx.moveTo(cx, cy); ctx.lineTo(rx, ry);
+      ctx.strokeStyle = 'rgba(37,99,235,0.75)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 3]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.beginPath();
+      ctx.arc(rx, ry, 4, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(37,99,235,0.7)';
+      ctx.fill();
+
+      // Sector boundary spokes
+      boundaries.forEach((b, i) => {
+        const { canvasX: bx, canvasY: by } = toCanvas(b.x, b.y);
+        ctx.beginPath();
+        ctx.moveTo(cx, cy); ctx.lineTo(bx, by);
+        ctx.strokeStyle = 'rgba(251,146,60,0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.beginPath();
+        ctx.arc(bx, by, 4, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(251,146,60,0.85)';
+        ctx.fill();
+
+        ctx.font = 'bold 10px Geist Mono, monospace';
+        ctx.fillStyle = '#fff';
+        ctx.fillText(String(i + 1), bx + 7, by + 4);
+      });
+    }
+  }
 }
 
 function drawCrosshair(x: number, y: number, w: number, h: number): void {
@@ -527,6 +597,8 @@ function handleMouseDown(e: MouseEvent): void {
       const picker = document.querySelector('input[type="color"]') as HTMLInputElement | null;
       if (picker) picker.value = hex;
       showToast(`Color picked: ${hex}`, 'info', 1500);
+    } else if (state.activeTool === 'pie' && onPieClick) {
+      onPieClick(imgX, imgY);
     }
   }
 }

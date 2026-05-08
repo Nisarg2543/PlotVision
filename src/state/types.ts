@@ -1,4 +1,4 @@
-export type Tool = 'pointer' | 'calibrate' | 'add-point' | 'auto-trace' | 'measure' | 'eraser' | 'pan';
+export type Tool = 'pointer' | 'calibrate' | 'add-point' | 'auto-trace' | 'measure' | 'eraser' | 'pan' | 'pie';
 
 export type AxisType = 'xy-linear' | 'xy-log' | 'polar' | 'ternary' | 'date-x' | 'map';
 
@@ -68,7 +68,7 @@ export interface ImageFilters {
   denoise: boolean;
 }
 
-export type ExtractionMode = 'curve' | 'bar' | 'scatter';
+export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie';
 
 export interface CalibrationState {
   axisType: AxisType;

@@ -16,11 +16,15 @@ export function exportCSV(datasetId?: string): void {
     showToast('No data to export', 'warning'); return;
   }
 
-  const lines: string[] = ['Dataset,X,Y'];
+  const hasLabels = datasets.some(d => d.points.some(p => p.label));
+  const lines: string[] = [hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y'];
   for (const ds of datasets) {
     for (const pt of ds.points) {
       const name = ds.name.replace(/"/g, '""');
-      lines.push(`"${name}",${pt.dataX},${pt.dataY}`);
+      const label = (pt.label ?? '').replace(/"/g, '""');
+      lines.push(hasLabels
+        ? `"${name}","${label}",${pt.dataX},${pt.dataY}`
+        : `"${name}",${pt.dataX},${pt.dataY}`);
     }
   }
 
@@ -39,8 +43,11 @@ export async function exportExcel(datasetId?: string): Promise<void> {
   try {
     const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
+    const hasLabels = datasets.some(d => d.points.some(p => p.label));
     for (const ds of datasets) {
-      const rows: (string | number)[][] = [['X', 'Y'], ...ds.points.map(p => [p.dataX, p.dataY])];
+      const rows: (string | number)[][] = hasLabels
+        ? [['Label', 'X', 'Y'], ...ds.points.map(p => [p.label ?? '', p.dataX, p.dataY])]
+        : [['X', 'Y'], ...ds.points.map(p => [p.dataX, p.dataY])];
       const ws = XLSX.utils.aoa_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, ds.name.slice(0, 31));
     }
