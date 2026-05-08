@@ -1,4 +1,4 @@
-export type Tool = 'pointer' | 'calibrate' | 'add-point' | 'auto-trace' | 'measure' | 'eraser' | 'pan' | 'pie';
+export type Tool = 'pointer' | 'calibrate' | 'add-point' | 'auto-trace' | 'measure' | 'eraser' | 'pan' | 'pie' | 'scale-bar' | 'perspective';
 
 export type AxisType = 'xy-linear' | 'xy-log' | 'polar' | 'ternary' | 'date-x' | 'map';
 

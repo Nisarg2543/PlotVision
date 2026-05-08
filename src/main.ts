@@ -10,6 +10,8 @@ import { addDataset } from './modules/datasets';
 import { handleCalibClick, handleCalibDrag } from './modules/calibration';
 import { handleDigitizerClick, deletePoint, pushHistoryOnDragEnd } from './modules/digitizer';
 import { handlePieClick } from './modules/pie-detector';
+import { handleScaleBarClick } from './modules/scale-bar';
+import { handlePerspectiveClick } from './modules/perspective';
 import { setupAutosave } from './modules/project';
 import { initOnboarding } from './ui/onboarding';
 
@@ -34,7 +36,9 @@ function main(): void {
     onCalibDrag:    handleCalibDrag,
     onDeletePoint:  (datasetId, pointId) => deletePoint(datasetId, pointId),
     onPointDragEnd: () => pushHistoryOnDragEnd(),
-    onPieClick:     handlePieClick,
+    onPieClick:          handlePieClick,
+    onScaleBarClick:     handleScaleBarClick,
+    onPerspectiveClick:  handlePerspectiveClick,
   });
 
   // Image loading (drag-drop, paste, file picker, PDF)

@@ -57,7 +57,13 @@ interface AutoTraceMod { getPreviewData: () => { data: Uint8ClampedArray; width:
 // Typed interface for the pie-chart overlay bridge
 interface PieOverlay { step: string; centerX: number; centerY: number; refX: number; refY: number; boundaries: { x: number; y: number }[]; }
 interface PieMod { getPieOverlay: () => PieOverlay | null; }
-declare global { interface Window { __autoTraceMod: AutoTraceMod | null; __pieMod: PieMod | null; } }
+// Typed interface for scale bar overlay bridge
+interface ScaleBarOverlay { step: string; p1x: number; p1y: number; p2x: number; p2y: number; isSet: boolean; unit: string; pixelsPerUnit: number; }
+interface ScaleBarMod { getScaleBarOverlay: () => ScaleBarOverlay | null; isScaleBarSet: () => boolean; convertPixelDistance: (px: number) => number; getScaleBarUnit: () => string; }
+// Typed interface for perspective overlay bridge
+interface PerspectiveOverlay { step: string; corners: { x: number; y: number }[]; }
+interface PerspectiveMod { getPerspectiveOverlay: () => PerspectiveOverlay | null; }
+declare global { interface Window { __autoTraceMod: AutoTraceMod | null; __pieMod: PieMod | null; __scaleBarMod: ScaleBarMod | null; __perspectiveMod: PerspectiveMod | null; } }
 
 // Internal interaction state
 let isPanning = false;
@@ -94,6 +100,8 @@ let onCalibDrag: ((id: string, imgX: number, imgY: number) => void) | null = nul
 let onPointDragEnd: ((datasetId: string, pointId: string, imgX: number, imgY: number) => void) | null = null;
 let onDeletePoint: ((datasetId: string, pointId: string) => void) | null = null;
 let onPieClick: ((imgX: number, imgY: number) => void) | null = null;
+let onScaleBarClick: ((imgX: number, imgY: number) => void) | null = null;
+let onPerspectiveClick: ((imgX: number, imgY: number) => void) | null = null;
 
 export function setCanvasCallbacks(cbs: {
   onCalibClick?: (x: number, y: number) => void;
@@ -102,6 +110,8 @@ export function setCanvasCallbacks(cbs: {
   onPointDragEnd?: (datasetId: string, pointId: string, x: number, y: number) => void;
   onDeletePoint?: (datasetId: string, pointId: string) => void;
   onPieClick?: (x: number, y: number) => void;
+  onScaleBarClick?: (x: number, y: number) => void;
+  onPerspectiveClick?: (x: number, y: number) => void;
 }): void {
   if (cbs.onCalibClick) onCalibClick = cbs.onCalibClick;
   if (cbs.onDigitizerClick) onDigitizerClick = cbs.onDigitizerClick;
@@ -109,6 +119,8 @@ export function setCanvasCallbacks(cbs: {
   if (cbs.onPointDragEnd) onPointDragEnd = cbs.onPointDragEnd;
   if (cbs.onDeletePoint) onDeletePoint = cbs.onDeletePoint;
   if (cbs.onPieClick) onPieClick = cbs.onPieClick;
+  if (cbs.onScaleBarClick) onScaleBarClick = cbs.onScaleBarClick;
+  if (cbs.onPerspectiveClick) onPerspectiveClick = cbs.onPerspectiveClick;
 }
 
 export function setImageBitmap(bmp: ImageBitmap): void {
@@ -222,6 +234,12 @@ function renderFrame(): void {
   // Pie chart extraction overlay
   drawPieOverlay(zoom, panX, panY);
 
+  // Scale bar overlay
+  drawScaleBarOverlay(zoom, panX, panY);
+
+  // Perspective correction overlay
+  drawPerspectiveOverlay(zoom, panX, panY);
+
   // Strip chart overlays
   if (getStrips().length > 0) {
     drawStripOverlays(ctx, zoom, panX, panY, mainCanvas.clientWidth, imageToCanvas);
@@ -315,6 +333,105 @@ function drawPieOverlay(zoom: number, panX: number, panY: number): void {
       });
     }
   }
+}
+
+function drawScaleBarOverlay(zoom: number, panX: number, panY: number): void {
+  const mod = window.__scaleBarMod;
+  if (!mod) return;
+  const overlay = mod.getScaleBarOverlay();
+  if (!overlay) return;
+
+  const { step, p1x, p1y, p2x, p2y, isSet, unit, pixelsPerUnit } = overlay;
+  const toCanvas = (ix: number, iy: number) => imageToCanvas(ix, iy, zoom, panX, panY);
+
+  const hasP1 = step !== 'idle' && (step === 'place-p2' || step === 'done' || isSet);
+  const hasP2 = step === 'done' || isSet;
+
+  if (hasP1) {
+    const { canvasX: x1, canvasY: y1 } = toCanvas(p1x, p1y);
+    ctx.beginPath();
+    ctx.arc(x1, y1, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  if (hasP2) {
+    const { canvasX: x1, canvasY: y1 } = toCanvas(p1x, p1y);
+    const { canvasX: x2, canvasY: y2 } = toCanvas(p2x, p2y);
+
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.beginPath();
+    ctx.arc(x2, y2, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    if (isSet && unit && pixelsPerUnit > 0) {
+      const mx = (x1 + x2) / 2;
+      const my = (y1 + y2) / 2;
+      const label = `1 ${unit} = ${pixelsPerUnit.toFixed(1)} px`;
+      ctx.font = '11px Geist Mono, monospace';
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = '#161616';
+      ctx.fillRect(mx - tw / 2 - 4, my - 18, tw + 8, 18);
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(mx - tw / 2 - 4, my - 18, tw + 8, 18);
+      ctx.fillStyle = '#10b981';
+      ctx.fillText(label, mx - tw / 2, my - 4);
+    }
+  }
+}
+
+function drawPerspectiveOverlay(zoom: number, panX: number, panY: number): void {
+  const mod = window.__perspectiveMod;
+  if (!mod) return;
+  const overlay = mod.getPerspectiveOverlay();
+  if (!overlay || overlay.corners.length === 0) return;
+
+  const { corners } = overlay;
+  const toCanvas = (ix: number, iy: number) => imageToCanvas(ix, iy, zoom, panX, panY);
+  const pts = corners.map(c => toCanvas(c.x, c.y));
+
+  // Draw polygon lines between placed corners
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    if (i === 0) ctx.moveTo(p.canvasX, p.canvasY);
+    else ctx.lineTo(p.canvasX, p.canvasY);
+  });
+  if (pts.length === 4) ctx.closePath();
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Draw corner dots with numbers
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.canvasX, p.canvasY, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#f59e0b';
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.font = 'bold 10px Geist Mono, monospace';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(String(i + 1), p.canvasX + 8, p.canvasY + 4);
+  });
 }
 
 function drawCrosshair(x: number, y: number, w: number, h: number): void {
@@ -599,6 +716,10 @@ function handleMouseDown(e: MouseEvent): void {
       showToast(`Color picked: ${hex}`, 'info', 1500);
     } else if (state.activeTool === 'pie' && onPieClick) {
       onPieClick(imgX, imgY);
+    } else if (state.activeTool === 'scale-bar' && onScaleBarClick) {
+      onScaleBarClick(imgX, imgY);
+    } else if (state.activeTool === 'perspective' && onPerspectiveClick) {
+      onPerspectiveClick(imgX, imgY);
     }
   }
 }

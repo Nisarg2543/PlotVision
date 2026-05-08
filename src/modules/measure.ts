@@ -53,11 +53,18 @@ export function getMeasureResult(): string {
   const hasCalib = state.calibration.isComplete;
 
   if (measureMode === 'distance' && pts.length === 2) {
+    const px = distance(pts[0].pixelX, pts[0].pixelY, pts[1].pixelX, pts[1].pixelY);
+    // Scale bar takes priority over XY calibration for distance
+    const sbMod = (window as unknown as Record<string, { isScaleBarSet?: () => boolean; convertPixelDistance?: (n: number) => number; getScaleBarUnit?: () => string } | null>).__scaleBarMod;
+    if (sbMod?.isScaleBarSet?.()) {
+      const realDist = sbMod.convertPixelDistance!(px);
+      const unit = sbMod.getScaleBarUnit!();
+      return `Distance: ${realDist.toPrecision(5)} ${unit}`;
+    }
     const dx = pts[1].dataX - pts[0].dataX;
     const dy = pts[1].dataY - pts[0].dataY;
     const d = Math.sqrt(dx * dx + dy * dy);
     if (hasCalib) return `Distance: ${d.toPrecision(5)} (data units)`;
-    const px = distance(pts[0].pixelX, pts[0].pixelY, pts[1].pixelX, pts[1].pixelY);
     return `Distance: ${px.toFixed(1)} px`;
   }
 

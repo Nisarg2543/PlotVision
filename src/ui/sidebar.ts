@@ -12,6 +12,8 @@ import { defaultScatterSettings, detectScatterPoints } from '../modules/scatter-
 import type { BarDetectorSettings } from '../modules/bar-detector';
 import type { ScatterDetectorSettings } from '../modules/scatter-detector';
 import { startPie, resetPie, undoLastBoundary, commitPieSectors, computeSectors, getPieStep, getPieBoundaryCount, setPieTotalValue, getPieTotalValue } from '../modules/pie-detector';
+import { startScaleBar, resetScaleBar, commitScaleBar, getScaleBarStep, isScaleBarSet, getScaleBarUnit, getPixelsPerUnit } from '../modules/scale-bar';
+import { startPerspective, resetPerspective, undoLastCorner, getPerspectiveStep, getPerspectiveCorners } from '../modules/perspective';
 import { render as canvasRender } from '../modules/canvas-engine';
 import type { ExtractionMode } from '../state/types';
 import { updatePreview } from '../ui/preview-panel';
@@ -183,6 +185,12 @@ function renderCalibTab(el: HTMLElement): void {
     el.appendChild(dispSec);
   }
 
+  // Scale Bar Calibration
+  renderScaleBarSection(el);
+
+  // Perspective Correction
+  renderPerspectiveSection(el);
+
   // PDF nav
   if (state.image.totalPages > 1) {
     const pdfSec = makeSec('PDF Pages');
@@ -199,6 +207,141 @@ function renderCalibTab(el: HTMLElement): void {
     pb.appendChild(pr);
     el.appendChild(pdfSec);
   }
+}
+
+// ── Scale Bar ─────────────────────────────────────────────────
+
+function renderScaleBarSection(el: HTMLElement): void {
+  const step = getScaleBarStep();
+  const isSet = isScaleBarSet();
+  const sec = makeSec('Scale Bar');
+  const body = makeSecBody(sec);
+
+  if (isSet) {
+    const unit = getScaleBarUnit();
+    const ppu = getPixelsPerUnit();
+    const info = makeDiv('');
+    info.style.cssText = 'font-size:11px;color:var(--color-muted);padding:0 0 6px;font-family:var(--font-mono);';
+    info.textContent = `1 ${unit} = ${ppu.toFixed(2)} px`;
+    body.appendChild(info);
+
+    const row = makeRow('start');
+    row.style.gap = '6px';
+    const resetBtn = makeBtn('Reset Scale', 'btn btn-ghost btn-sm');
+    resetBtn.addEventListener('click', resetScaleBar);
+    row.appendChild(resetBtn);
+    body.appendChild(row);
+  } else if (step === 'idle') {
+    const hint = makeDiv('');
+    hint.style.cssText = 'font-size:11px;color:var(--color-muted);padding:0 0 8px;';
+    hint.textContent = 'Draw a line over a scale bar to calibrate physical distances.';
+    body.appendChild(hint);
+    const startBtn = makeBtn('Set Scale Bar →', 'btn btn-primary');
+    startBtn.addEventListener('click', startScaleBar);
+    body.appendChild(startBtn);
+  } else if (step === 'place-p1') {
+    const hint = makeDiv('calib-hint');
+    hint.textContent = 'Click the left/start end of the scale bar';
+    body.appendChild(hint);
+    const cancelBtn = makeBtn('Cancel', 'btn btn-ghost btn-sm');
+    cancelBtn.style.marginTop = '6px';
+    cancelBtn.addEventListener('click', resetScaleBar);
+    body.appendChild(cancelBtn);
+  } else if (step === 'place-p2') {
+    const hint = makeDiv('calib-hint');
+    hint.textContent = 'Click the right/end of the scale bar';
+    body.appendChild(hint);
+    const cancelBtn = makeBtn('Cancel', 'btn btn-ghost btn-sm');
+    cancelBtn.style.marginTop = '6px';
+    cancelBtn.addEventListener('click', resetScaleBar);
+    body.appendChild(cancelBtn);
+  } else if (step === 'done') {
+    const hint = makeDiv('calib-hint');
+    hint.textContent = 'Enter the real-world length and unit:';
+    body.appendChild(hint);
+
+    const row = makeRow('start');
+    row.style.cssText = 'gap:6px;padding:6px 0;';
+
+    const valInp = document.createElement('input');
+    valInp.className = 'pv-input';
+    valInp.type = 'number';
+    valInp.placeholder = 'e.g. 50';
+    valInp.min = '0';
+    valInp.style.cssText = 'flex:1;min-width:0;';
+
+    const unitInp = document.createElement('input');
+    unitInp.className = 'pv-input';
+    unitInp.type = 'text';
+    unitInp.placeholder = 'unit (µm, mm…)';
+    unitInp.style.cssText = 'flex:1;min-width:0;';
+
+    row.appendChild(valInp); row.appendChild(unitInp);
+    body.appendChild(row);
+
+    const commit = makeBtn('Confirm →', 'btn btn-primary');
+    commit.addEventListener('click', () => {
+      const v = parseFloat(valInp.value);
+      const u = unitInp.value.trim();
+      if (!v || v <= 0) { valInp.focus(); return; }
+      if (!u) { unitInp.focus(); return; }
+      commitScaleBar(v, u);
+    });
+    body.appendChild(commit);
+
+    const cancelBtn = makeBtn('Cancel', 'btn btn-ghost btn-sm');
+    cancelBtn.style.marginTop = '4px';
+    cancelBtn.addEventListener('click', resetScaleBar);
+    body.appendChild(cancelBtn);
+
+    setTimeout(() => valInp.focus(), 50);
+  }
+
+  el.appendChild(sec);
+}
+
+// ── Perspective Correction ─────────────────────────────────────
+
+function renderPerspectiveSection(el: HTMLElement): void {
+  const step = getPerspectiveStep();
+  const corners = getPerspectiveCorners();
+  const sec = makeSec('Perspective Correction');
+  const body = makeSecBody(sec);
+
+  if (step === 'idle') {
+    const hint = makeDiv('');
+    hint.style.cssText = 'font-size:11px;color:var(--color-muted);padding:0 0 8px;';
+    hint.textContent = 'Fix photos taken at an angle: click the 4 corners of the chart area clockwise from top-left.';
+    body.appendChild(hint);
+    const startBtn = makeBtn('Correct Perspective →', 'btn btn-primary');
+    startBtn.addEventListener('click', startPerspective);
+    body.appendChild(startBtn);
+  } else {
+    const hint = makeDiv('calib-hint');
+    const remaining = 4 - corners.length;
+    if (remaining > 0) {
+      hint.textContent = `Click corner ${corners.length + 1} of 4 (${remaining} remaining) — clockwise from top-left`;
+    } else {
+      hint.textContent = 'Applying warp…';
+    }
+    body.appendChild(hint);
+
+    const row = makeRow('start');
+    row.style.cssText = 'gap:6px;margin-top:8px;';
+
+    if (corners.length > 0) {
+      const undoBtn = makeBtn('Undo', 'btn btn-ghost btn-sm');
+      undoBtn.addEventListener('click', undoLastCorner);
+      row.appendChild(undoBtn);
+    }
+
+    const cancelBtn = makeBtn('Cancel', 'btn btn-ghost btn-sm');
+    cancelBtn.addEventListener('click', resetPerspective);
+    row.appendChild(cancelBtn);
+    body.appendChild(row);
+  }
+
+  el.appendChild(sec);
 }
 
 // ── Data ───────────────────────────────────────────────────────
