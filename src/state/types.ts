@@ -8,7 +8,11 @@ export type CalibrationStep =
   | 'place-x2' | 'await-x2-value'
   | 'place-y1' | 'await-y1-value'
   | 'place-y2' | 'await-y2-value'
-  | 'complete';
+  | 'complete'
+  // Polar wizard
+  | 'polar-place-center' | 'polar-place-ref' | 'polar-await-r'
+  // Ternary wizard
+  | 'ternary-place-a' | 'ternary-place-b' | 'ternary-place-c';
 
 export type CalibPointRole = 'x1' | 'x2' | 'y1' | 'y2';
 

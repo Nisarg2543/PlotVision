@@ -1,5 +1,5 @@
 import { getState, setState } from '../state/store';
-import { uid, isTransformValid } from '../utils/math';
+import { uid, isTransformValid, distance } from '../utils/math';
 import { isLogAxisType, getLogFlags } from './axis-types';
 import { showToast } from '../utils/toast';
 import type { CalibrationPoint, CalibrationStep, CoordinateTransform } from '../state/types';
@@ -13,20 +13,39 @@ const STEP_ORDER: CalibrationStep[] = [
 ];
 
 const STEP_PROMPTS: Partial<Record<CalibrationStep, string>> = {
-  'place-x1':      'Click X1 — a known point on the X axis (e.g. leftmost tick)',
-  'await-x1-value':'Enter the X value at X1',
-  'place-x2':      'Click X2 — a second known point on the X axis',
-  'await-x2-value':'Enter the X value at X2',
-  'place-y1':      'Click Y1 — a known point on the Y axis (e.g. bottom tick)',
-  'await-y1-value':'Enter the Y value at Y1',
-  'place-y2':      'Click Y2 — a second known point on the Y axis',
-  'await-y2-value':'Enter the Y value at Y2',
-  'complete':      'Calibration complete ✓',
+  'place-x1':            'Click X1 — a known point on the X axis (e.g. leftmost tick)',
+  'await-x1-value':      'Enter the X value at X1',
+  'place-x2':            'Click X2 — a second known point on the X axis',
+  'await-x2-value':      'Enter the X value at X2',
+  'place-y1':            'Click Y1 — a known point on the Y axis (e.g. bottom tick)',
+  'await-y1-value':      'Enter the Y value at Y1',
+  'place-y2':            'Click Y2 — a second known point on the Y axis',
+  'await-y2-value':      'Enter the Y value at Y2',
+  'complete':            'Calibration complete ✓',
+  'polar-place-center':  'Click the polar origin (center of the chart)',
+  'polar-place-ref':     'Click a reference point at a known radius',
+  'polar-await-r':       'Enter the radius value at the reference point',
+  'ternary-place-a':     'Click vertex A (top corner of the ternary triangle)',
+  'ternary-place-b':     'Click vertex B (bottom-left corner)',
+  'ternary-place-c':     'Click vertex C (bottom-right corner)',
 };
 
+// Polar calibration scratch state (pixel coords of center + ref point)
+let polarCenterPx = 0, polarCenterPy = 0;
+let polarRefPx = 0, polarRefPy = 0;
+
+// Ternary calibration scratch state
+let ternaryAPx = 0, ternaryAPy = 0;
+let ternaryBPx = 0, ternaryBPy = 0;
+
 export function startCalibration(): void {
+  const { axisType } = getState().calibration;
+  let firstStep: CalibrationStep = 'place-x1';
+  if (axisType === 'polar')   firstStep = 'polar-place-center';
+  if (axisType === 'ternary') firstStep = 'ternary-place-a';
+
   setState(draft => {
-    draft.calibration.step = 'place-x1';
+    draft.calibration.step = firstStep;
     draft.calibration.points = [];
     draft.calibration.isComplete = false;
     draft.calibration.transform = null;
@@ -35,7 +54,52 @@ export function startCalibration(): void {
 }
 
 export function handleCalibClick(imgX: number, imgY: number): void {
-  const { step } = getState().calibration;
+  const { step, axisType } = getState().calibration;
+
+  // Polar calibration clicks
+  if (step === 'polar-place-center') {
+    polarCenterPx = imgX; polarCenterPy = imgY;
+    setState(d => { d.calibration.step = 'polar-place-ref'; });
+    return;
+  }
+  if (step === 'polar-place-ref') {
+    polarRefPx = imgX; polarRefPy = imgY;
+    setState(d => { d.calibration.step = 'polar-await-r'; });
+    return;
+  }
+
+  // Ternary calibration clicks
+  if (step === 'ternary-place-a') {
+    ternaryAPx = imgX; ternaryAPy = imgY;
+    setState(d => { d.calibration.step = 'ternary-place-b'; });
+    return;
+  }
+  if (step === 'ternary-place-b') {
+    ternaryBPx = imgX; ternaryBPy = imgY;
+    setState(d => { d.calibration.step = 'ternary-place-c'; });
+    return;
+  }
+  if (step === 'ternary-place-c') {
+    // Three vertices placed — build transform immediately (no value input needed)
+    const cPx = imgX, cPy = imgY;
+    const transform: CoordinateTransform = {
+      axisType: 'ternary',
+      x1px: ternaryAPx, x1py: ternaryAPy, x1Data: 100,
+      x2px: ternaryBPx, x2py: ternaryBPy, x2Data: 100,
+      y1px: cPx,        y1py: cPy,         y1Data: 100,
+      y2px: 0, y2py: 0, y2Data: 0,
+    };
+    setState(d => {
+      d.calibration.transform = transform;
+      d.calibration.isComplete = true;
+      d.calibration.step = 'complete';
+      d.activeTool = 'pointer';
+    });
+    showToast('Ternary calibration complete!', 'success');
+    return;
+  }
+
+  // Standard XY calibration clicks
   const placeSteps: CalibrationStep[] = ['place-x1', 'place-x2', 'place-y1', 'place-y2'];
   if (!placeSteps.includes(step)) return;
 
@@ -48,9 +112,9 @@ export function handleCalibClick(imgX: number, imgY: number): void {
     draft.calibration.points = draft.calibration.points.filter(p => p.role !== role);
     draft.calibration.points.push({ id: uid(), role, pixelX: imgX, pixelY: imgY, dataX: null, dataY: null });
     const idx = STEP_ORDER.indexOf(step);
-    // Advance to the next step (always an await-value step)
     draft.calibration.step = STEP_ORDER[idx + 1] ?? 'complete';
   });
+  void axisType; // suppress unused-var warning
 }
 
 export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr: string): void {
@@ -139,6 +203,38 @@ function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null 
     y1px: y1.pixelX, y1py: y1.pixelY, y1Data: y1.dataY,
     y2px: y2.pixelX, y2py: y2.pixelY, y2Data: y2.dataY,
   };
+}
+
+export function handlePolarRConfirm(rValue: number): void {
+  if (isNaN(rValue) || rValue <= 0) {
+    showToast('Enter a positive radius value', 'warning');
+    return;
+  }
+  const d = distance(polarCenterPx, polarCenterPy, polarRefPx, polarRefPy);
+  if (d < 1) {
+    showToast('Center and reference points are too close', 'warning');
+    return;
+  }
+  // angle offset: angle from east (positive X) to the reference point
+  const angleOffsetDeg = Math.atan2(
+    -(polarRefPy - polarCenterPy), // flip Y (canvas Y-down)
+    polarRefPx - polarCenterPx
+  ) * (180 / Math.PI);
+
+  const transform: CoordinateTransform = {
+    axisType: 'polar',
+    x1px: polarCenterPx, x1py: polarCenterPy, x1Data: rValue,
+    x2px: polarRefPx,    x2py: polarRefPy,    x2Data: 0,
+    y1px: 0, y1py: 0, y1Data: angleOffsetDeg,
+    y2px: 0, y2py: 0, y2Data: 0,   // 0 = CCW; 1 = CW
+  };
+  setState(d => {
+    d.calibration.transform = transform;
+    d.calibration.isComplete = true;
+    d.calibration.step = 'complete';
+    d.activeTool = 'pointer';
+  });
+  showToast('Polar calibration complete!', 'success');
 }
 
 export function handleCalibDrag(id: string, imgX: number, imgY: number): void {

@@ -189,3 +189,75 @@ export function detectBars(settings: BarDetectorSettings): BarDetectorResult | n
 
   return { points, previewData: preview, width: W, height: H };
 }
+
+/**
+ * Detect all bar layers in a stacked/grouped bar chart.
+ * Samples N most-distinct colors from the image, runs bar detection per color,
+ * and returns only colors that produced at least minBarsPerLayer bars.
+ */
+export interface BarLayer {
+  color: string;
+  result: BarDetectorResult;
+}
+
+export function detectAllBarLayers(
+  direction: 'vertical' | 'horizontal' = 'vertical',
+  tolerance = 28,
+  minBarsPerLayer = 2
+): BarLayer[] {
+  const bitmap = getImageBitmap();
+  if (!bitmap) return [];
+
+  const offscreen = document.createElement('canvas');
+  const maxSide = 300;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  offscreen.width = Math.round(bitmap.width * scale);
+  offscreen.height = Math.round(bitmap.height * scale);
+  const offCtx = offscreen.getContext('2d')!;
+  offCtx.drawImage(bitmap, 0, 0, offscreen.width, offscreen.height);
+  const { data: px, width: W, height: H } = offCtx.getImageData(0, 0, offscreen.width, offscreen.height);
+
+  // Sample colors from a grid, skip near-white / near-black / near-gray backgrounds
+  const colorCounts = new Map<string, number>();
+  const step = 5;
+  for (let y = step; y < H - step; y += step) {
+    for (let x = step; x < W - step; x += step) {
+      const i = (y * W + x) * 4;
+      const r = px[i], g = px[i+1], b = px[i+2];
+      // Skip near-achromatic colors (low saturation)
+      const max = Math.max(r, g, b), min = Math.min(r, g, b);
+      const saturation = max > 0 ? (max - min) / max : 0;
+      if (saturation < 0.2 || max > 240 || max < 20) continue;
+      // Quantize to 32-step buckets for clustering
+      const qr = Math.round(r / 32) * 32;
+      const qg = Math.round(g / 32) * 32;
+      const qb = Math.round(b / 32) * 32;
+      const key = `#${qr.toString(16).padStart(2,'0')}${qg.toString(16).padStart(2,'0')}${qb.toString(16).padStart(2,'0')}`;
+      colorCounts.set(key, (colorCounts.get(key) ?? 0) + 1);
+    }
+  }
+
+  // Take top 8 most-common saturated colors
+  const candidateColors = [...colorCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([c]) => c);
+
+  const layers: BarLayer[] = [];
+  for (const color of candidateColors) {
+    const settings: BarDetectorSettings = {
+      targetColor: color,
+      tolerance,
+      direction,
+      minBarWidth: 4,
+      bgColor: null,
+      bgTolerance: 20,
+    };
+    const result = detectBars(settings);
+    if (result && result.points.length >= minBarsPerLayer) {
+      layers.push({ color, result });
+    }
+  }
+
+  return layers;
+}

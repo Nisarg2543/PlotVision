@@ -204,14 +204,15 @@ function smoothCurve(ys: (number | null)[], mode: AutoTraceSettings['smoothing']
   return result;
 }
 
-export function commitAutoTrace(points: DataPoint[]): void {
+export function commitAutoTrace(points: DataPoint[], datasetId?: string): void {
   const state = getState();
-  if (!state.activeDatasetId) { showToast('No active dataset', 'warning'); return; }
+  const targetId = datasetId ?? state.activeDatasetId;
+  if (!targetId) { showToast('No active dataset', 'warning'); return; }
   if (points.length === 0) { showToast('No points detected — try adjusting tolerance', 'warning'); return; }
 
   pushHistory('Auto-trace');
   setState(draft => {
-    const ds = draft.datasets.find(d => d.id === draft.activeDatasetId);
+    const ds = draft.datasets.find(d => d.id === targetId);
     if (ds) ds.points = [...ds.points, ...points];
   });
   clearPreview();

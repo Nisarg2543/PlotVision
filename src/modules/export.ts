@@ -17,7 +17,11 @@ export function exportCSV(datasetId?: string): void {
   }
 
   const hasLabels = datasets.some(d => d.points.some(p => p.label));
-  const lines: string[] = [hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y'];
+  // Detect pie datasets by checking if all points have labels and dataX looks like angle degrees
+  const isPieExport = hasLabels && datasets.every(d => d.points.every(p => p.label));
+  const lines: string[] = [
+    isPieExport ? 'Dataset,Sector,Angle(deg),Value' : hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y',
+  ];
   for (const ds of datasets) {
     for (const pt of ds.points) {
       const name = ds.name.replace(/"/g, '""');
@@ -63,11 +67,20 @@ export async function exportExcel(datasetId?: string): Promise<void> {
 export function exportJSON(datasetId?: string): void {
   const state = getState();
   const datasets = getDatasets(datasetId);
+
+  // Scale bar metadata if set
+  type SBMod = { isScaleBarSet: () => boolean; getScaleBarUnit: () => string; getPixelsPerUnit: () => number } | null;
+  const sbMod = (window as unknown as Record<string, SBMod>).__scaleBarMod;
+  const scaleBar = sbMod?.isScaleBarSet?.()
+    ? { unit: sbMod!.getScaleBarUnit!(), pixelsPerUnit: sbMod!.getPixelsPerUnit!() }
+    : undefined;
+
   const out = {
     metadata: {
       filename: state.image.filename,
       date: new Date().toISOString(),
       calibration: state.calibration.transform,
+      ...(scaleBar ? { scaleBar } : {}),
     },
     datasets: datasets.map(ds => ({
       name: ds.name,

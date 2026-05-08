@@ -6,6 +6,8 @@ import { cycleActiveDataset } from '../modules/datasets';
 import { exportCSV } from '../modules/export';
 import { startCalibration } from '../modules/calibration';
 import { saveProject, openProjectPicker } from '../modules/project';
+import { startScaleBar } from '../modules/scale-bar';
+import { startPerspective } from '../modules/perspective';
 
 let spaceDown = false;
 let toolBeforeSpace = getState().activeTool;
@@ -78,6 +80,8 @@ function handleKeyDown(e: KeyboardEvent): void {
     case 't': case 'T': setActiveTool('auto-trace'); break;
     case 'm': case 'M': setActiveTool('measure'); break;
     case 'e': case 'E': setActiveTool('eraser'); break;
+    case 'b': case 'B': startScaleBar(); break;
+    case 'p': case 'P': startPerspective(); break;
     case '0': fitToWindow(); break;
     case '+': case '=': zoomBy(1.3); break;
     case '-': zoomBy(1 / 1.3); break;

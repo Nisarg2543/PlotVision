@@ -1,6 +1,6 @@
 import { getState, setState } from '../state/store';
 import { linearPixelToData, linearDataToPixel } from '../utils/math';
-import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
+import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel, polarPixelToData, ternaryPixelToData } from './axis-types';
 import { uid } from '../utils/math';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
@@ -77,6 +77,29 @@ export function nudgePoint(direction: string, deltaPx: number): void {
 }
 
 function pixelToData(imgX: number, imgY: number, t: import('../state/types').CoordinateTransform, axisType: string) {
+  if (axisType === 'polar') {
+    const polar = {
+      centerPx: t.x1px, centerPy: t.x1py,
+      refPx: t.x2px,    refPy: t.x2py,
+      rAtRef: t.x1Data,
+      angleOffsetDeg: t.y1Data,
+      clockwise: t.y2Data > 0,
+    };
+    const { r, thetaDeg } = polarPixelToData(imgX, imgY, polar);
+    return { dataX: r, dataY: thetaDeg };
+  }
+  if (axisType === 'ternary') {
+    const ternary = {
+      aPx: t.x1px, aPy: t.x1py,
+      bPx: t.x2px, bPy: t.x2py,
+      cPx: t.y1px, cPy: t.y1py,
+    };
+    const { a, b, c } = ternaryPixelToData(imgX, imgY, ternary);
+    // dataX = A%, dataY = B%; C% = 100 - A - B
+    const scale = t.x1Data || 100;
+    return { dataX: parseFloat((a * scale).toFixed(4)), dataY: parseFloat((b * scale).toFixed(4)) };
+    void c;
+  }
   if (isLogAxisType(axisType)) {
     const { logX, logY } = getLogFlags(axisType);
     return logPixelToData(imgX, imgY, t, logX, logY);

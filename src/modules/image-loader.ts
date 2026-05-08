@@ -2,6 +2,7 @@ import { setState, getState } from '../state/store';
 import { setImageBitmap, fitToWindow, render } from './canvas-engine';
 import { readFileAsArrayBuffer } from '../utils/file';
 import { showToast } from '../utils/toast';
+import { detectChartType, getChartTypeLabel } from './auto-detect';
 
 // PDF document stored here (not cloneable)
 let pdfDoc: any = null;
@@ -124,6 +125,30 @@ function handleBitmapLoaded(
   fitToWindow();
   render();
   showToast(`Loaded: ${filename}${totalPages > 1 ? ` (page ${page}/${totalPages})` : ''}`, 'success');
+
+  // Auto-detect chart type in background after initial render
+  setTimeout(() => {
+    try {
+      const offscreen = document.createElement('canvas');
+      const maxSide = 400;
+      const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+      offscreen.width = Math.round(bmp.width * scale);
+      offscreen.height = Math.round(bmp.height * scale);
+      const ctx = offscreen.getContext('2d')!;
+      ctx.drawImage(bmp, 0, 0, offscreen.width, offscreen.height);
+      const imgData = ctx.getImageData(0, 0, offscreen.width, offscreen.height);
+      const result = detectChartType(imgData);
+      if (result.type !== 'unknown' && result.confidence > 0.35) {
+        showToast(
+          `Detected: ${getChartTypeLabel(result.type)} (${(result.confidence * 100).toFixed(0)}% confidence)`,
+          'info',
+          4000
+        );
+      }
+    } catch {
+      // Detection errors are non-fatal
+    }
+  }, 150);
 }
 
 export async function goToPage(pageNum: number): Promise<void> {

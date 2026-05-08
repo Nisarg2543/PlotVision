@@ -3,18 +3,21 @@ import {
   addDataset, removeDataset, setActiveDataset, toggleDatasetVisibility,
   renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints, clearDatasetPoints,
 } from '../modules/datasets';
-import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration } from '../modules/calibration';
+import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration, handlePolarRConfirm } from '../modules/calibration';
 import { updatePointData, deletePoint as deleteDataPoint } from '../modules/digitizer';
 import { goToPage } from '../modules/image-loader';
 import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
-import { defaultBarSettings, detectBars } from '../modules/bar-detector';
+import { defaultBarSettings, detectBars, detectAllBarLayers } from '../modules/bar-detector';
 import { defaultScatterSettings, detectScatterPoints } from '../modules/scatter-detector';
 import type { BarDetectorSettings } from '../modules/bar-detector';
 import type { ScatterDetectorSettings } from '../modules/scatter-detector';
 import { startPie, resetPie, undoLastBoundary, commitPieSectors, computeSectors, getPieStep, getPieBoundaryCount, setPieTotalValue, getPieTotalValue } from '../modules/pie-detector';
 import { startScaleBar, resetScaleBar, commitScaleBar, getScaleBarStep, isScaleBarSet, getScaleBarUnit, getPixelsPerUnit } from '../modules/scale-bar';
+import { detectChartType, getChartTypeLabel } from '../modules/auto-detect';
+import { getImageBitmap } from '../modules/canvas-engine';
 import { startPerspective, resetPerspective, undoLastCorner, getPerspectiveStep, getPerspectiveCorners } from '../modules/perspective';
 import { render as canvasRender } from '../modules/canvas-engine';
+import { showToast } from '../utils/toast';
 import type { ExtractionMode } from '../state/types';
 import { updatePreview } from '../ui/preview-panel';
 import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints } from '../modules/measure';
@@ -129,49 +132,105 @@ function renderCalibTab(el: HTMLElement): void {
   }
   el.appendChild(statusSec);
 
-  // Wizard
+  // Wizard — branch on axis type for polar/ternary vs standard XY
   if (cal.step !== 'idle' && cal.step !== 'complete') {
     const wizEl = document.createElement('div');
     wizEl.className = 'ps';
 
-    const stepOrder = [
-      'place-x1','await-x1-value','place-x2','await-x2-value',
-      'place-y1','await-y1-value','place-y2','await-y2-value',
-    ];
-    const idx = stepOrder.indexOf(cal.step);
+    if (cal.axisType === 'polar') {
+      // Polar 3-step wizard
+      const steps = ['polar-place-center', 'polar-place-ref', 'polar-await-r'];
+      const idx = steps.indexOf(cal.step);
+      const pips = makeDiv('calib-progress');
+      steps.forEach((_, i) => {
+        const pip = makeDiv('calib-pip');
+        if (i < idx) pip.classList.add('done');
+        if (i === idx) pip.classList.add('active');
+        pips.appendChild(pip);
+      });
+      wizEl.appendChild(pips);
+      const lbl = makeDiv('calib-action-label');
+      lbl.textContent = `Step ${idx + 1} of 3`;
+      wizEl.appendChild(lbl);
+      const hint = makeDiv('calib-hint');
+      hint.textContent = getWizardPrompt();
+      wizEl.appendChild(hint);
 
-    const pips = makeDiv('calib-progress');
-    stepOrder.forEach((_, i) => {
-      const pip = makeDiv('calib-pip');
-      if (i < idx)  pip.classList.add('done');
-      if (i === idx) pip.classList.add('active');
-      pips.appendChild(pip);
-    });
-    wizEl.appendChild(pips);
+      if (cal.step === 'polar-await-r') {
+        const inp = document.createElement('input');
+        inp.className = 'pv-input';
+        inp.type = 'number';
+        inp.placeholder = 'Radius value at reference point';
+        inp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') handlePolarRConfirm(parseFloat(inp.value)); });
+        wizEl.appendChild(inp);
+        const confirmBtn = makeBtn('Confirm →', 'btn btn-primary');
+        confirmBtn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
+        confirmBtn.addEventListener('click', () => handlePolarRConfirm(parseFloat(inp.value)));
+        wizEl.appendChild(confirmBtn);
+        setTimeout(() => inp.focus(), 50);
+      }
 
-    const actionLbl = makeDiv('calib-action-label');
-    actionLbl.textContent = `Step ${Math.floor(idx / 2) + 1} of 4`;
-    wizEl.appendChild(actionLbl);
+    } else if (cal.axisType === 'ternary') {
+      // Ternary 3-step wizard (no value inputs — just 3 vertex clicks)
+      const steps = ['ternary-place-a', 'ternary-place-b', 'ternary-place-c'];
+      const idx = steps.indexOf(cal.step);
+      const pips = makeDiv('calib-progress');
+      steps.forEach((_, i) => {
+        const pip = makeDiv('calib-pip');
+        if (i < idx) pip.classList.add('done');
+        if (i === idx) pip.classList.add('active');
+        pips.appendChild(pip);
+      });
+      wizEl.appendChild(pips);
+      const lbl = makeDiv('calib-action-label');
+      lbl.textContent = `Step ${idx + 1} of 3`;
+      wizEl.appendChild(lbl);
+      const hint = makeDiv('calib-hint');
+      hint.textContent = getWizardPrompt();
+      wizEl.appendChild(hint);
 
-    const hint = makeDiv('calib-hint');
-    hint.textContent = getWizardPrompt();
-    wizEl.appendChild(hint);
+    } else {
+      // Standard XY wizard (4 points)
+      const stepOrder = [
+        'place-x1','await-x1-value','place-x2','await-x2-value',
+        'place-y1','await-y1-value','place-y2','await-y2-value',
+      ];
+      const idx = stepOrder.indexOf(cal.step);
 
-    const role = STEP_TO_ROLE[cal.step];
-    if (role) {
-      const inp = document.createElement('input');
-      inp.className = 'pv-input';
-      inp.type = 'number';
-      inp.placeholder = (role === 'x1' || role === 'x2') ? 'Enter X value' : 'Enter Y value';
-      inp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
-      inp.addEventListener('keydown', e => { if (e.key === 'Enter') handleCalibValueConfirm(role, inp.value); });
-      wizEl.appendChild(inp);
+      const pips = makeDiv('calib-progress');
+      stepOrder.forEach((_, i) => {
+        const pip = makeDiv('calib-pip');
+        if (i < idx)  pip.classList.add('done');
+        if (i === idx) pip.classList.add('active');
+        pips.appendChild(pip);
+      });
+      wizEl.appendChild(pips);
 
-      const confirmBtn = makeBtn('Confirm value →', 'btn btn-primary');
-      confirmBtn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
-      confirmBtn.addEventListener('click', () => handleCalibValueConfirm(role, inp.value));
-      wizEl.appendChild(confirmBtn);
-      setTimeout(() => inp.focus(), 50);
+      const actionLbl = makeDiv('calib-action-label');
+      actionLbl.textContent = `Step ${Math.floor(idx / 2) + 1} of 4`;
+      wizEl.appendChild(actionLbl);
+
+      const hint = makeDiv('calib-hint');
+      hint.textContent = getWizardPrompt();
+      wizEl.appendChild(hint);
+
+      const role = STEP_TO_ROLE[cal.step];
+      if (role) {
+        const inp = document.createElement('input');
+        inp.className = 'pv-input';
+        inp.type = 'number';
+        inp.placeholder = (role === 'x1' || role === 'x2') ? 'Enter X value' : 'Enter Y value';
+        inp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') handleCalibValueConfirm(role, inp.value); });
+        wizEl.appendChild(inp);
+
+        const confirmBtn = makeBtn('Confirm value →', 'btn btn-primary');
+        confirmBtn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
+        confirmBtn.addEventListener('click', () => handleCalibValueConfirm(role, inp.value));
+        wizEl.appendChild(confirmBtn);
+        setTimeout(() => inp.focus(), 50);
+      }
     }
     el.appendChild(wizEl);
   }
@@ -577,6 +636,39 @@ function renderTraceTab(el: HTMLElement): void {
   const ats = getAutoTraceSettings();
   let lastResult: { points: import('../state/types').DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null = null;
 
+  // Auto-detect section
+  const detectSec = makeSec('Auto-Detect Chart Type');
+  const db = makeSecBody(detectSec);
+  const detectBtn = makeBtn('Analyze image…', 'btn btn-ghost btn-sm');
+  const detectResult = makeDiv('');
+  detectResult.style.cssText = 'font-size:11px;color:var(--color-muted);margin-top:6px;font-family:var(--font-mono);';
+  detectBtn.addEventListener('click', () => {
+    const bmp = getImageBitmap();
+    if (!bmp) { detectResult.textContent = 'Load an image first.'; return; }
+    detectBtn.disabled = true;
+    detectBtn.textContent = 'Analyzing…';
+    try {
+      const offscreen = document.createElement('canvas');
+      const maxSide = 400;
+      const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+      offscreen.width = Math.round(bmp.width * scale);
+      offscreen.height = Math.round(bmp.height * scale);
+      offscreen.getContext('2d')!.drawImage(bmp, 0, 0, offscreen.width, offscreen.height);
+      const imgData = offscreen.getContext('2d')!.getImageData(0, 0, offscreen.width, offscreen.height);
+      const result = detectChartType(imgData);
+      const label = getChartTypeLabel(result.type);
+      detectResult.textContent = `${label} — ${(result.confidence * 100).toFixed(0)}% confidence\n${result.reason}`;
+      detectResult.style.whiteSpace = 'pre-wrap';
+    } catch (e) {
+      detectResult.textContent = 'Detection failed.';
+    }
+    detectBtn.disabled = false;
+    detectBtn.textContent = 'Analyze image…';
+  });
+  db.appendChild(detectBtn);
+  db.appendChild(detectResult);
+  el.appendChild(detectSec);
+
   // Extraction mode selector
   const modeSec = makeSec('Extraction Mode');
   const mb = makeSecBody(modeSec);
@@ -751,6 +843,41 @@ function renderTraceTab(el: HTMLElement): void {
     commitBtn.style.display = 'none';
   });
   ab.appendChild(clearBtn);
+
+  // Stacked / grouped bar: auto-detect all color layers
+  if (traceExtractionMode === 'bar') {
+    const sep = makeDiv(''); sep.style.cssText = 'height:1px;background:var(--color-border);margin:8px 0;';
+    ab.appendChild(sep);
+
+    const stackedHint = makeDiv('');
+    stackedHint.style.cssText = 'font-size:11px;color:var(--color-muted);margin-bottom:6px;';
+    stackedHint.textContent = 'Stacked / grouped bars — detect each color layer automatically:';
+    ab.appendChild(stackedHint);
+
+    const stackedBtn = makeBtn('Detect All Layers', 'btn btn-ghost btn-sm');
+    stackedBtn.addEventListener('click', () => {
+      stackedBtn.disabled = true;
+      stackedBtn.textContent = 'Detecting…';
+      try {
+        const layers = detectAllBarLayers(barSettings.direction, barSettings.tolerance);
+        if (layers.length === 0) {
+          showToast('No bar layers found — try adjusting tolerance or direction', 'warning');
+        } else {
+          // Each layer → new dataset
+          layers.forEach((layer, i) => {
+            const dsId = addDataset(`Layer ${i + 1}`, layer.color);
+            commitAutoTrace(layer.result.points, dsId);
+          });
+          showToast(`Added ${layers.length} bar layer${layers.length > 1 ? 's' : ''} as datasets`, 'success');
+        }
+      } catch (err) {
+        showToast('Stacked bar detection failed: ' + (err as Error).message, 'error');
+      }
+      stackedBtn.disabled = false;
+      stackedBtn.textContent = 'Detect All Layers';
+    });
+    ab.appendChild(stackedBtn);
+  }
 
   el.appendChild(actSec);
 }
