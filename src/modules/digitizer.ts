@@ -70,7 +70,7 @@ export function nudgePoint(direction: string, deltaPx: number): void {
     if (!ppt) return;
     ppt.pixelX = newPx; ppt.pixelY = newPy;
     if (draft.calibration.transform) {
-      const { dataX, dataY } = linearPixelToData(newPx, newPy, draft.calibration.transform);
+      const { dataX, dataY } = pixelToData(newPx, newPy, draft.calibration.transform, draft.calibration.axisType);
       ppt.dataX = dataX; ppt.dataY = dataY;
     }
   });

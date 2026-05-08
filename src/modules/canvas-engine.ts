@@ -1,5 +1,6 @@
 import { getState, setState, subscribe } from '../state/store';
 import { canvasToImage, imageToCanvas, clamp, linearDataToPixel, linearPixelToData, niceGridInterval, distance } from '../utils/math';
+import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
 import { showToast } from '../utils/toast';
 import { drawMeasureOverlay, handleMeasureClick, isMeasureActive } from './measure';
 import { drawStripOverlays, getStrips } from './strip-chart';
@@ -135,7 +136,7 @@ function renderFrame(): void {
 
   // Calibration grid overlay
   if (state.calibration.showGrid && state.calibration.isComplete && state.calibration.transform) {
-    drawCalibGrid(state.calibration.transform, zoom, panX, panY, w, h);
+    drawCalibGrid(state.calibration.transform, zoom, panX, panY, w, h, state.calibration.axisType);
   }
 
   // Calibration points
@@ -197,21 +198,39 @@ function drawCrosshair(x: number, y: number, w: number, h: number): void {
 
 function drawCalibGrid(
   t: ReturnType<typeof getState>['calibration']['transform'],
-  zoom: number, panX: number, panY: number, w: number, h: number
+  zoom: number, panX: number, panY: number, w: number, h: number,
+  axisType: string
 ): void {
   if (!t) return;
   ctx.strokeStyle = 'rgba(37,99,235,0.18)';
   ctx.lineWidth = 0.5;
 
-  const xRange = Math.abs(t.x2Data - t.x1Data);
-  const yRange = Math.abs(t.y2Data - t.y1Data);
-  const xInterval = niceGridInterval(xRange, 8);
-  const yInterval = niceGridInterval(yRange, 8);
+  const { logX, logY } = isLogAxisType(axisType)
+    ? getLogFlags(axisType)
+    : { logX: false, logY: false };
 
-  const xStart = Math.ceil(Math.min(t.x1Data, t.x2Data) / xInterval) * xInterval;
-  const xEnd = Math.floor(Math.max(t.x1Data, t.x2Data) / xInterval) * xInterval;
-  for (let xv = xStart; xv <= xEnd + xInterval * 0.001; xv += xInterval) {
-    const { pixelX } = linearDataToPixel(xv, t.y1Data, t);
+  // Collect X grid values
+  const xVals: number[] = [];
+  if (logX && t.x1Data > 0 && t.x2Data > 0) {
+    const logMin = Math.log10(Math.min(t.x1Data, t.x2Data));
+    const logMax = Math.log10(Math.max(t.x1Data, t.x2Data));
+    for (let e = Math.floor(logMin); e <= Math.ceil(logMax); e++) {
+      for (const m of [1, 2, 5]) {
+        const v = m * Math.pow(10, e);
+        if (v >= Math.min(t.x1Data, t.x2Data) && v <= Math.max(t.x1Data, t.x2Data)) xVals.push(v);
+      }
+    }
+  } else {
+    const xInterval = niceGridInterval(Math.abs(t.x2Data - t.x1Data), 8);
+    const xStart = Math.ceil(Math.min(t.x1Data, t.x2Data) / xInterval) * xInterval;
+    const xEnd   = Math.floor(Math.max(t.x1Data, t.x2Data) / xInterval) * xInterval;
+    for (let xv = xStart; xv <= xEnd + xInterval * 0.001; xv += xInterval) xVals.push(xv);
+  }
+
+  for (const xv of xVals) {
+    const { pixelX } = logX
+      ? logDataToPixel(xv, t.y1Data, t, true, false)
+      : linearDataToPixel(xv, t.y1Data, t);
     const { canvasX } = imageToCanvas(pixelX, 0, zoom, panX, panY);
     if (canvasX < 0 || canvasX > w) continue;
     ctx.beginPath();
@@ -219,10 +238,28 @@ function drawCalibGrid(
     ctx.stroke();
   }
 
-  const yStart = Math.ceil(Math.min(t.y1Data, t.y2Data) / yInterval) * yInterval;
-  const yEnd = Math.floor(Math.max(t.y1Data, t.y2Data) / yInterval) * yInterval;
-  for (let yv = yStart; yv <= yEnd + yInterval * 0.001; yv += yInterval) {
-    const { pixelY } = linearDataToPixel(t.x1Data, yv, t);
+  // Collect Y grid values
+  const yVals: number[] = [];
+  if (logY && t.y1Data > 0 && t.y2Data > 0) {
+    const logMin = Math.log10(Math.min(t.y1Data, t.y2Data));
+    const logMax = Math.log10(Math.max(t.y1Data, t.y2Data));
+    for (let e = Math.floor(logMin); e <= Math.ceil(logMax); e++) {
+      for (const m of [1, 2, 5]) {
+        const v = m * Math.pow(10, e);
+        if (v >= Math.min(t.y1Data, t.y2Data) && v <= Math.max(t.y1Data, t.y2Data)) yVals.push(v);
+      }
+    }
+  } else {
+    const yInterval = niceGridInterval(Math.abs(t.y2Data - t.y1Data), 8);
+    const yStart = Math.ceil(Math.min(t.y1Data, t.y2Data) / yInterval) * yInterval;
+    const yEnd   = Math.floor(Math.max(t.y1Data, t.y2Data) / yInterval) * yInterval;
+    for (let yv = yStart; yv <= yEnd + yInterval * 0.001; yv += yInterval) yVals.push(yv);
+  }
+
+  for (const yv of yVals) {
+    const { pixelY } = logY
+      ? logDataToPixel(t.x1Data, yv, t, false, true)
+      : linearDataToPixel(t.x1Data, yv, t);
     const { canvasY } = imageToCanvas(0, pixelY, zoom, panX, panY);
     if (canvasY < 0 || canvasY > h) continue;
     ctx.beginPath();
@@ -315,7 +352,13 @@ function updateStatusBar(state: ReturnType<typeof getState>): void {
   const fileEl= document.getElementById('st-file');
 
   if (state.calibration.isComplete && state.calibration.transform) {
-    const { dataX, dataY } = linearPixelToData(mouseImgX, mouseImgY, state.calibration.transform);
+    let dataX: number, dataY: number;
+    if (isLogAxisType(state.calibration.axisType)) {
+      const { logX, logY } = getLogFlags(state.calibration.axisType);
+      ({ dataX, dataY } = logPixelToData(mouseImgX, mouseImgY, state.calibration.transform, logX, logY));
+    } else {
+      ({ dataX, dataY } = linearPixelToData(mouseImgX, mouseImgY, state.calibration.transform));
+    }
     if (xEl) xEl.textContent = dataX.toPrecision(5);
     if (yEl) yEl.textContent = dataY.toPrecision(5);
   } else {
@@ -457,7 +500,13 @@ function handleMouseMove(e: MouseEvent): void {
         if (pt) {
           pt.pixelX = imgX; pt.pixelY = imgY;
           if (draft.calibration.transform) {
-            const { dataX, dataY } = linearPixelToData(imgX, imgY, draft.calibration.transform);
+            let dataX: number, dataY: number;
+            if (isLogAxisType(draft.calibration.axisType)) {
+              const { logX, logY } = getLogFlags(draft.calibration.axisType);
+              ({ dataX, dataY } = logPixelToData(imgX, imgY, draft.calibration.transform, logX, logY));
+            } else {
+              ({ dataX, dataY } = linearPixelToData(imgX, imgY, draft.calibration.transform));
+            }
             pt.dataX = dataX; pt.dataY = dataY;
           }
           break;

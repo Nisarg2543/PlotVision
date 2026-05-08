@@ -1,5 +1,6 @@
 import { getState, setState } from '../state/store';
 import { uid, isTransformValid } from '../utils/math';
+import { isLogAxisType, getLogFlags } from './axis-types';
 import { showToast } from '../utils/toast';
 import type { CalibrationPoint, CalibrationStep, CoordinateTransform } from '../state/types';
 
@@ -57,6 +58,18 @@ export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr
   if (isNaN(value)) {
     showToast('Please enter a valid number', 'warning');
     return;
+  }
+
+  // Warn if log axis requires positive values
+  const { axisType } = getState().calibration;
+  if (isLogAxisType(axisType)) {
+    const { logX, logY } = getLogFlags(axisType);
+    const isXRole = role === 'x1' || role === 'x2';
+    const isYRole = role === 'y1' || role === 'y2';
+    if ((isXRole && logX && value <= 0) || (isYRole && logY && value <= 0)) {
+      showToast('Log-scale calibration values must be positive (> 0)', 'error');
+      return;
+    }
   }
 
   const awaitStepMap: Record<CalibrationPoint['role'], CalibrationStep> = {

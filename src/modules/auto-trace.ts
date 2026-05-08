@@ -2,6 +2,7 @@ import { getState, setState } from '../state/store';
 import { getImageBitmap, render } from './canvas-engine';
 import { rgbToLab, deltaE } from '../utils/color';
 import { linearPixelToData, uid } from '../utils/math';
+import { isLogAxisType, getLogFlags, logPixelToData } from './axis-types';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
 import type { DataPoint } from '../state/types';
@@ -109,10 +110,16 @@ export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]
   // Downsample by sampling interval
   const rawPoints: DataPoint[] = [];
   const transform = state.calibration.transform!;
+  const axisType = state.calibration.axisType;
+  const useLog = isLogAxisType(axisType);
+  const { logX, logY } = useLog ? getLogFlags(axisType) : { logX: false, logY: false };
+
   for (let x = 0; x < W; x += settings.samplingInterval) {
     const y = smoothed[x];
     if (y === null) continue;
-    const { dataX, dataY } = linearPixelToData(x, y, transform);
+    const { dataX, dataY } = useLog
+      ? logPixelToData(x, y, transform, logX, logY)
+      : linearPixelToData(x, y, transform);
     rawPoints.push({ id: uid(), pixelX: x, pixelY: y, dataX, dataY });
   }
 
