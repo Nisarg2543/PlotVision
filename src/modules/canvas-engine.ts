@@ -1,6 +1,7 @@
 import { getState, setState, subscribe } from '../state/store';
 import { canvasToImage, imageToCanvas, clamp, linearDataToPixel, linearPixelToData, niceGridInterval, distance } from '../utils/math';
 import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
+import { applyThreshold, applySharpen, applyAutoContrast, applyDenoise } from './image-filters';
 import { showToast } from '../utils/toast';
 import { drawMeasureOverlay, handleMeasureClick, isMeasureActive } from './measure';
 import { drawStripOverlays, getStrips } from './strip-chart';
@@ -9,6 +10,47 @@ import type { Dataset, DataPoint, CalibrationPoint } from '../state/types';
 
 // ImageBitmap stored here — cannot be structuredCloned
 let bitmap: ImageBitmap | null = null;
+
+// Processed ImageData: CSS + pixel filters applied, used by detectors
+// Rebuilt lazily on next getProcessedImageData() call after invalidation
+let processedImageData: ImageData | null = null;
+
+export function invalidateProcessedImage(): void {
+  processedImageData = null;
+}
+
+export function getProcessedImageData(): ImageData | null {
+  if (!bitmap) return null;
+  if (!processedImageData) processedImageData = buildProcessedImageData();
+  return processedImageData;
+}
+
+function buildProcessedImageData(): ImageData {
+  const W = bitmap!.width, H = bitmap!.height;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = W; offscreen.height = H;
+  const offCtx = offscreen.getContext('2d')!;
+
+  // Apply CSS filters first (matches visual display)
+  const f = getState().canvas.imageFilters;
+  let filterStr = `brightness(${f.brightness}%) contrast(${f.contrast}%)`;
+  if (f.grayscale) filterStr += ' grayscale(1)';
+  if (f.invert)    filterStr += ' invert(1)';
+  offCtx.filter = filterStr;
+  offCtx.drawImage(bitmap!, 0, 0);
+  offCtx.filter = 'none';
+
+  const imgData = offCtx.getImageData(0, 0, W, H);
+  const d = imgData.data;
+
+  // Apply pixel-level filters in order
+  if (f.sharpen)      applySharpen(d, W, H);
+  if (f.denoise)      applyDenoise(d, W, H);
+  if (f.autoContrast) applyAutoContrast(d);
+  if (f.threshold !== null) applyThreshold(d, f.threshold);
+
+  return imgData;
+}
 
 // Typed interface for the auto-trace preview bridge
 interface AutoTraceMod { getPreviewData: () => { data: Uint8ClampedArray; width: number; height: number } | null; }
@@ -65,6 +107,7 @@ export function setCanvasCallbacks(cbs: {
 
 export function setImageBitmap(bmp: ImageBitmap): void {
   bitmap = bmp;
+  processedImageData = null;
 }
 
 export function getImageBitmap(): ImageBitmap | null {
@@ -105,7 +148,10 @@ export function initCanvas(cont: HTMLElement): void {
   });
   document.getElementById('delete-cancel')?.addEventListener('click', hideDeletePopover);
 
-  subscribe(() => render());
+  subscribe(() => {
+    processedImageData = null; // invalidate on any state change (filters may have changed)
+    render();
+  });
   render();
 }
 

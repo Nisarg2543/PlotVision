@@ -1,6 +1,6 @@
 import { getState, setState } from '../state/store';
-import { getImageBitmap, render } from './canvas-engine';
-import { rgbToLab, deltaE } from '../utils/color';
+import { getImageBitmap, render, getProcessedImageData } from './canvas-engine';
+import { rgbToLab, deltaE, hexToRgb } from '../utils/color';
 import { linearPixelToData, uid } from '../utils/math';
 import { isLogAxisType, getLogFlags, logPixelToData } from './axis-types';
 import { pushHistory } from './history';
@@ -13,6 +13,8 @@ export interface AutoTraceSettings {
   smoothing: 'none' | 'light' | 'heavy';
   samplingInterval: number;  // pixels between output points
   previewOnly: boolean;
+  bgColor: string | null;    // optional background color to exclude
+  bgTolerance: number;       // 0–100, tolerance for background exclusion
 }
 
 // Highlighted pixels drawn on overlay during preview
@@ -26,25 +28,90 @@ export const defaultAutoTraceSettings: AutoTraceSettings = {
   smoothing: 'light',
   samplingInterval: 3,
   previewOnly: false,
+  bgColor: null,
+  bgTolerance: 20,
 };
 
 let currentSettings: AutoTraceSettings = { ...defaultAutoTraceSettings };
 
-export function getAutoTraceSettings(): AutoTraceSettings {
-  return currentSettings;
-}
+export function getAutoTraceSettings(): AutoTraceSettings { return currentSettings; }
 
 export function setAutoTraceSettings(s: Partial<AutoTraceSettings>): void {
   currentSettings = { ...currentSettings, ...s };
 }
 
-// Pick color from image at given pixel coords
+/**
+ * Build a binary foreground mask (1=match, 0=background) from image pixel data.
+ * Shared utility used by auto-trace, bar-detector, and scatter-detector.
+ *
+ * @param pixels  Raw RGBA pixel array (from ImageData.data)
+ * @param W       Image width
+ * @param H       Image height
+ * @param targetHex  Target color in hex
+ * @param tolerance  0–100, maps to ΔE threshold
+ * @param bgHex   Optional background color to exclude (pixels matching bg are forced to 0)
+ * @param bgTolerance  0–100 tolerance for bg exclusion
+ */
+export function buildColorMask(
+  pixels: Uint8ClampedArray,
+  W: number,
+  H: number,
+  targetHex: string,
+  tolerance: number,
+  bgHex: string | null = null,
+  bgTolerance = 20,
+): Uint8Array {
+  const { r: tr, g: tg, b: tb } = hexToRgb(targetHex);
+  const targetLab = rgbToLab(tr, tg, tb);
+  const threshold = tolerance * 0.5;
+
+  let bgLab: [number, number, number] | null = null;
+  let bgThresh = 0;
+  if (bgHex) {
+    const { r: br, g: bg, b: bb } = hexToRgb(bgHex);
+    bgLab = rgbToLab(br, bg, bb);
+    bgThresh = bgTolerance * 0.5;
+  }
+
+  const mask = new Uint8Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    const r = pixels[i * 4], g = pixels[i * 4 + 1], b = pixels[i * 4 + 2];
+    const lab = rgbToLab(r, g, b);
+    if (bgLab && deltaE(bgLab, lab) < bgThresh) { mask[i] = 0; continue; }
+    mask[i] = deltaE(targetLab, lab) < threshold ? 1 : 0;
+  }
+  return mask;
+}
+
+/** Get image pixels — uses processed (filtered) data when available, falls back to raw bitmap. */
+function getImagePixels(): { pixels: Uint8ClampedArray; W: number; H: number } | null {
+  // Prefer processed image (has pixel filters applied)
+  const processed = getProcessedImageData();
+  if (processed) return { pixels: processed.data, W: processed.width, H: processed.height };
+
+  const bitmap = getImageBitmap();
+  if (!bitmap) return null;
+  const offscreen = document.createElement('canvas');
+  offscreen.width = bitmap.width; offscreen.height = bitmap.height;
+  offscreen.getContext('2d')!.drawImage(bitmap, 0, 0);
+  const imgData = offscreen.getContext('2d')!.getImageData(0, 0, bitmap.width, bitmap.height);
+  return { pixels: imgData.data, W: bitmap.width, H: bitmap.height };
+}
+
+/** Pick color from the processed image at given pixel coords. */
 export function pickColorAtPixel(imgX: number, imgY: number): string {
+  const processed = getProcessedImageData();
+  if (processed) {
+    const x = Math.min(Math.max(Math.round(imgX), 0), processed.width - 1);
+    const y = Math.min(Math.max(Math.round(imgY), 0), processed.height - 1);
+    const i = (y * processed.width + x) * 4;
+    const d = processed.data;
+    return `#${[d[i], d[i+1], d[i+2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
+  }
   const bitmap = getImageBitmap();
   if (!bitmap) return '#ff0000';
   const offscreen = document.createElement('canvas');
-  offscreen.width = bitmap.width;
-  offscreen.height = bitmap.height;
+  offscreen.width = bitmap.width; offscreen.height = bitmap.height;
   const ctx = offscreen.getContext('2d')!;
   ctx.drawImage(bitmap, 0, 0);
   const px = Math.round(imgX), py = Math.round(imgY);
@@ -52,10 +119,10 @@ export function pickColorAtPixel(imgX: number, imgY: number): string {
   return `#${[d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-// Run the trace algorithm — returns traced pixel list
+/** Run the curve trace algorithm — returns traced points + preview overlay. */
 export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null {
-  const bitmap = getImageBitmap();
-  if (!bitmap) { showToast('Load an image first', 'warning'); return null; }
+  const imgPx = getImagePixels();
+  if (!imgPx) { showToast('Load an image first', 'warning'); return null; }
 
   const state = getState();
   if (!state.calibration.isComplete || !state.calibration.transform) {
@@ -63,33 +130,9 @@ export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]
     return null;
   }
 
-  // Rasterize image into pixel array
-  const offscreen = document.createElement('canvas');
-  offscreen.width = bitmap.width;
-  offscreen.height = bitmap.height;
-  const ctx = offscreen.getContext('2d')!;
-  ctx.drawImage(bitmap, 0, 0);
-  const imgData = ctx.getImageData(0, 0, bitmap.width, bitmap.height);
-  const pixels = imgData.data;
-  const W = bitmap.width, H = bitmap.height;
+  const { pixels, W, H } = imgPx;
 
-  // Parse target color to LAB
-  const hex = settings.targetColor.replace('#', '');
-  const tr = parseInt(hex.slice(0, 2), 16);
-  const tg = parseInt(hex.slice(2, 4), 16);
-  const tb = parseInt(hex.slice(4, 6), 16);
-  const targetLab = rgbToLab(tr, tg, tb);
-
-  // deltaE threshold: tolerance 0–100 → ~0–50 deltaE
-  const threshold = settings.tolerance * 0.5;
-
-  // Build foreground mask using LAB deltaE
-  const mask = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) {
-    const r = pixels[i * 4], g = pixels[i * 4 + 1], b = pixels[i * 4 + 2];
-    const lab = rgbToLab(r, g, b);
-    mask[i] = deltaE(targetLab, lab) < threshold ? 1 : 0;
-  }
+  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance);
 
   // For each column, find median Y of foreground pixels
   const columnYs: (number | null)[] = new Array(W).fill(null);
@@ -104,10 +147,8 @@ export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]
     }
   }
 
-  // Smooth curve
   const smoothed = smoothCurve(columnYs, settings.smoothing);
 
-  // Downsample by sampling interval
   const rawPoints: DataPoint[] = [];
   const transform = state.calibration.transform!;
   const axisType = state.calibration.axisType;
@@ -123,14 +164,13 @@ export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]
     rawPoints.push({ id: uid(), pixelX: x, pixelY: y, dataX, dataY });
   }
 
-  // Build preview image data (highlight foreground pixels in cyan)
+  // Build preview overlay — foreground pixels in blue, traced center line in white
   const preview = new Uint8ClampedArray(W * H * 4);
   for (let i = 0; i < W * H; i++) {
     if (mask[i]) {
-      preview[i * 4] = 34; preview[i * 4 + 1] = 211; preview[i * 4 + 2] = 238; preview[i * 4 + 3] = 180;
+      preview[i * 4] = 37; preview[i * 4 + 1] = 99; preview[i * 4 + 2] = 235; preview[i * 4 + 3] = 160;
     }
   }
-  // Highlight traced center line in bright cyan
   for (let x = 0; x < W; x++) {
     const y = smoothed[x];
     if (y !== null) {

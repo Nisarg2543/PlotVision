@@ -61,7 +61,14 @@ export interface ImageFilters {
   contrast: number;
   grayscale: boolean;
   invert: boolean;
+  // Pixel-level filters (applied to processed image copy used by detectors)
+  sharpen: boolean;
+  threshold: number | null;  // null = off, 0–255 when enabled
+  autoContrast: boolean;
+  denoise: boolean;
 }
+
+export type ExtractionMode = 'curve' | 'bar' | 'scatter';
 
 export interface CalibrationState {
   axisType: AxisType;

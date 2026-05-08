@@ -18,7 +18,7 @@ function createInitialState(): AppState {
       zoom: 1,
       panX: 0,
       panY: 0,
-      imageFilters: { brightness: 100, contrast: 100, grayscale: false, invert: false },
+      imageFilters: { brightness: 100, contrast: 100, grayscale: false, invert: false, sharpen: false, threshold: null, autoContrast: false, denoise: false },
     },
     calibration: createInitialCalibration(),
     datasets: [],

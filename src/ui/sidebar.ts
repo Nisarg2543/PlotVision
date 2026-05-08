@@ -7,7 +7,12 @@ import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibr
 import { updatePointData, deletePoint as deleteDataPoint } from '../modules/digitizer';
 import { goToPage } from '../modules/image-loader';
 import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
+import { defaultBarSettings, detectBars } from '../modules/bar-detector';
+import { defaultScatterSettings, detectScatterPoints } from '../modules/scatter-detector';
+import type { BarDetectorSettings } from '../modules/bar-detector';
+import type { ScatterDetectorSettings } from '../modules/scatter-detector';
 import { render as canvasRender } from '../modules/canvas-engine';
+import type { ExtractionMode } from '../state/types';
 import { updatePreview } from '../ui/preview-panel';
 import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints } from '../modules/measure';
 import type { CalibPointRole } from '../state/types';
@@ -28,11 +33,19 @@ const STEP_TO_ROLE: Partial<Record<string, CalibPointRole>> = {
 };
 
 let sidebarDebounce: ReturnType<typeof setTimeout> | null = null;
+let sidebarBodyEl: HTMLElement | null = null;
+
+function initSidebarDebounced(): void {
+  if (!sidebarBodyEl) return;
+  if (sidebarDebounce) clearTimeout(sidebarDebounce);
+  sidebarDebounce = setTimeout(() => renderBody(sidebarBodyEl!), 0);
+}
 
 export function initSidebar(_container: HTMLElement): void {
   const tabsEl = document.getElementById('panel-tabs');
   const bodyEl = document.getElementById('panel-body');
   if (!tabsEl || !bodyEl) return;
+  sidebarBodyEl = bodyEl;
 
   tabsEl.innerHTML = '';
   TABS.forEach(t => {
@@ -307,14 +320,75 @@ function renderDataTab(el: HTMLElement): void {
   if (state.image.width > 0) {
     const filtSec = makeSec('Image Filters');
     const fb = makeSecBody(filtSec);
-    fb.appendChild(makeFilterSlider('Brightness', state.canvas.imageFilters.brightness, 0, 200,
+    const f = state.canvas.imageFilters;
+
+    // CSS filters (display only)
+    fb.appendChild(makeFilterSlider('Brightness', f.brightness, 0, 200,
       v => setState(d => { d.canvas.imageFilters.brightness = v; })));
-    fb.appendChild(makeFilterSlider('Contrast', state.canvas.imageFilters.contrast, 0, 200,
+    fb.appendChild(makeFilterSlider('Contrast', f.contrast, 0, 200,
       v => setState(d => { d.canvas.imageFilters.contrast = v; })));
-    fb.appendChild(makeCheckbox('Invert', state.canvas.imageFilters.invert,
+    const cssRow = makeDiv(''); cssRow.style.cssText = 'display:flex;gap:12px;';
+    cssRow.appendChild(makeCheckbox('Invert', f.invert,
       e => setState(d => { d.canvas.imageFilters.invert = (e.target as HTMLInputElement).checked; })));
-    fb.appendChild(makeCheckbox('Grayscale', state.canvas.imageFilters.grayscale,
+    cssRow.appendChild(makeCheckbox('Grayscale', f.grayscale,
       e => setState(d => { d.canvas.imageFilters.grayscale = (e.target as HTMLInputElement).checked; })));
+    fb.appendChild(cssRow);
+
+    // Separator
+    const sep = makeDiv(''); sep.style.cssText = 'height:1px;background:var(--color-border);margin:6px 0;';
+    fb.appendChild(sep);
+
+    // Pixel-level filters (affect auto-trace / detectors)
+    const pixLabel = makeDiv('');
+    pixLabel.style.cssText = 'font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--color-muted);margin-bottom:4px;';
+    pixLabel.textContent = 'Preprocessing (affects trace)';
+    fb.appendChild(pixLabel);
+
+    const pxRow1 = makeDiv(''); pxRow1.style.cssText = 'display:flex;gap:12px;';
+    pxRow1.appendChild(makeCheckbox('Sharpen', f.sharpen,
+      e => setState(d => { d.canvas.imageFilters.sharpen = (e.target as HTMLInputElement).checked; })));
+    pxRow1.appendChild(makeCheckbox('Denoise', f.denoise,
+      e => setState(d => { d.canvas.imageFilters.denoise = (e.target as HTMLInputElement).checked; })));
+    fb.appendChild(pxRow1);
+
+    const pxRow2 = makeDiv(''); pxRow2.style.cssText = 'display:flex;gap:12px;';
+    pxRow2.appendChild(makeCheckbox('Auto-Contrast', f.autoContrast,
+      e => setState(d => { d.canvas.imageFilters.autoContrast = (e.target as HTMLInputElement).checked; })));
+    fb.appendChild(pxRow2);
+
+    // Threshold slider (with on/off toggle)
+    const threshRow = makeDiv(''); threshRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+    const threshCheck = document.createElement('input');
+    threshCheck.type = 'checkbox'; threshCheck.checked = f.threshold !== null;
+    threshCheck.style.cssText = 'accent-color:var(--color-accent);cursor:pointer;width:14px;height:14px;flex-shrink:0;';
+    const threshLabel = makeDiv('');
+    threshLabel.style.cssText = 'font-size:12px;color:var(--color-text-2);';
+    threshLabel.textContent = 'Threshold';
+    threshRow.appendChild(threshCheck);
+    threshRow.appendChild(threshLabel);
+    fb.appendChild(threshRow);
+
+    const threshSliderWrap = makeDiv('');
+    threshSliderWrap.style.display = f.threshold !== null ? 'block' : 'none';
+    const threshVal = f.threshold ?? 128;
+    threshSliderWrap.appendChild(makeFilterSlider(`Level: ${threshVal}`, threshVal, 0, 255,
+      v => setState(d => { if (d.canvas.imageFilters.threshold !== null) d.canvas.imageFilters.threshold = v; })));
+    fb.appendChild(threshSliderWrap);
+
+    threshCheck.addEventListener('change', () => {
+      const on = threshCheck.checked;
+      setState(d => { d.canvas.imageFilters.threshold = on ? 128 : null; });
+      threshSliderWrap.style.display = on ? 'block' : 'none';
+    });
+
+    // Reset button
+    const resetBtn = makeBtn('Reset All Filters', 'btn btn-ghost btn-sm');
+    resetBtn.style.marginTop = '6px';
+    resetBtn.addEventListener('click', () => setState(d => {
+      d.canvas.imageFilters = { brightness: 100, contrast: 100, grayscale: false, invert: false, sharpen: false, threshold: null, autoContrast: false, denoise: false };
+    }));
+    fb.appendChild(resetBtn);
+
     el.appendChild(filtSec);
   }
 
@@ -351,52 +425,153 @@ function renderDataTab(el: HTMLElement): void {
 
 // ── Trace ──────────────────────────────────────────────────────
 
+let traceExtractionMode: ExtractionMode = 'curve';
+let barSettings: BarDetectorSettings = { ...defaultBarSettings };
+let scatterSettings: ScatterDetectorSettings = { ...defaultScatterSettings };
+
 function renderTraceTab(el: HTMLElement): void {
   const ats = getAutoTraceSettings();
-  let lastResult: ReturnType<typeof runAutoTrace> = null;
+  let lastResult: { points: import('../state/types').DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null = null;
 
-  const infoSec = makeSec('Auto-Trace');
-  const ib = makeSecBody(infoSec);
-  const infoTxt = makeDiv('');
-  infoTxt.style.cssText = 'font-size:11px;color:var(--color-text-2);line-height:1.55;';
-  infoTxt.textContent = 'Switch to Auto-Trace tool (T), click a line to pick its color, then preview and commit.';
-  ib.appendChild(infoTxt);
-  el.appendChild(infoSec);
+  // Extraction mode selector
+  const modeSec = makeSec('Extraction Mode');
+  const mb = makeSecBody(modeSec);
+  const modes: { id: ExtractionMode; label: string; hint: string }[] = [
+    { id: 'curve',   label: 'Line / Curve',   hint: 'Traces continuous curves and lines' },
+    { id: 'bar',     label: 'Bar Chart',       hint: 'Detects vertical or horizontal bars' },
+    { id: 'scatter', label: 'Scatter Points',  hint: 'Finds discrete point markers' },
+  ];
+  const modeRow = makeDiv(''); modeRow.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
+  modes.forEach(m => {
+    const btn = makeBtn(m.label, `btn btn-sm ${traceExtractionMode === m.id ? 'btn-primary' : 'btn-ghost'}`);
+    btn.title = m.hint;
+    btn.addEventListener('click', () => {
+      traceExtractionMode = m.id;
+      lastResult = null;
+      window.__autoTraceMod = null;
+      clearPreview();
+      initSidebarDebounced();
+    });
+    modeRow.appendChild(btn);
+  });
+  mb.appendChild(modeRow);
+  el.appendChild(modeSec);
+
+  // Target color (shared across all modes)
+  const curColor = traceExtractionMode === 'curve' ? ats.targetColor
+    : traceExtractionMode === 'bar' ? barSettings.targetColor
+    : scatterSettings.targetColor;
 
   const colorSec = makeSec('Target Color');
   const cb = makeSecBody(colorSec);
-  const colorRow = makeRow('start');
-  colorRow.style.gap = '8px';
+  const colorRow = makeRow('start'); colorRow.style.gap = '8px';
   const colorPicker = document.createElement('input');
-  colorPicker.type = 'color'; colorPicker.value = ats.targetColor;
+  colorPicker.type = 'color'; colorPicker.value = curColor;
   colorPicker.style.cssText = 'width:34px;height:28px;border:1px solid var(--color-border-2);border-radius:5px;background:var(--color-bg);cursor:pointer;padding:2px;flex-shrink:0;';
-  colorPicker.addEventListener('input', () => setAutoTraceSettings({ targetColor: colorPicker.value }));
-  cb.appendChild(colorRow);
+  colorPicker.addEventListener('input', () => {
+    if (traceExtractionMode === 'curve') setAutoTraceSettings({ targetColor: colorPicker.value });
+    else if (traceExtractionMode === 'bar') barSettings.targetColor = colorPicker.value;
+    else scatterSettings.targetColor = colorPicker.value;
+  });
   colorRow.appendChild(colorPicker);
   colorRow.appendChild(makeSpan('or click canvas (T tool)', 'font-size:11px;color:var(--color-muted);'));
+  cb.appendChild(colorRow);
   el.appendChild(colorSec);
 
+  // Background exclusion (all modes)
+  const bgSec = makeSec('Background Exclusion');
+  const bgb = makeSecBody(bgSec);
+  const bgRow = makeRow('start'); bgRow.style.cssText = 'gap:8px;margin-bottom:6px;';
+  const bgCheck = document.createElement('input');
+  bgCheck.type = 'checkbox';
+  bgCheck.style.cssText = 'accent-color:var(--color-accent);cursor:pointer;width:14px;height:14px;flex-shrink:0;';
+  const bgEnabled = traceExtractionMode === 'curve' ? ats.bgColor !== null
+    : traceExtractionMode === 'bar' ? barSettings.bgColor !== null
+    : scatterSettings.bgColor !== null;
+  bgCheck.checked = bgEnabled;
+
+  const bgPicker = document.createElement('input');
+  bgPicker.type = 'color';
+  const bgVal = (traceExtractionMode === 'curve' ? ats.bgColor : traceExtractionMode === 'bar' ? barSettings.bgColor : scatterSettings.bgColor) ?? '#ffffff';
+  bgPicker.value = bgVal;
+  bgPicker.disabled = !bgEnabled;
+  bgPicker.style.cssText = `width:34px;height:28px;border:1px solid var(--color-border-2);border-radius:5px;background:var(--color-bg);cursor:pointer;padding:2px;flex-shrink:0;opacity:${bgEnabled ? '1' : '0.4'};`;
+  bgPicker.addEventListener('input', () => {
+    if (traceExtractionMode === 'curve') setAutoTraceSettings({ bgColor: bgPicker.value });
+    else if (traceExtractionMode === 'bar') barSettings.bgColor = bgPicker.value;
+    else scatterSettings.bgColor = bgPicker.value;
+  });
+  bgCheck.addEventListener('change', () => {
+    const on = bgCheck.checked;
+    bgPicker.disabled = !on; bgPicker.style.opacity = on ? '1' : '0.4';
+    const col = on ? bgPicker.value : null;
+    if (traceExtractionMode === 'curve') setAutoTraceSettings({ bgColor: col });
+    else if (traceExtractionMode === 'bar') barSettings.bgColor = col;
+    else scatterSettings.bgColor = col;
+  });
+  bgRow.appendChild(bgCheck);
+  bgRow.appendChild(makeSpan('Exclude background color', 'font-size:11px;color:var(--color-text-2);'));
+  bgRow.appendChild(bgPicker);
+  bgb.appendChild(bgRow);
+  el.appendChild(bgSec);
+
+  // Mode-specific settings
   const settSec = makeSec('Settings');
   const sb = makeSecBody(settSec);
-  sb.appendChild(makeFilterSlider('Tolerance', ats.tolerance, 0, 100, v => setAutoTraceSettings({ tolerance: v })));
-  sb.appendChild(makeLbl('Smoothing'));
-  const smoothSel = makeSelect([['none','None'],['light','Light'],['heavy','Heavy']], ats.smoothing);
-  smoothSel.addEventListener('change', () => setAutoTraceSettings({ smoothing: smoothSel.value as any }));
-  sb.appendChild(smoothSel);
-  sb.appendChild(makeFilterSlider(`Interval (${ats.samplingInterval}px)`, ats.samplingInterval, 1, 20,
-    v => setAutoTraceSettings({ samplingInterval: v })));
+
+  if (traceExtractionMode === 'curve') {
+    sb.appendChild(makeFilterSlider('Tolerance', ats.tolerance, 0, 100, v => setAutoTraceSettings({ tolerance: v })));
+    sb.appendChild(makeLbl('Smoothing'));
+    const smoothSel = makeSelect([['none','None'],['light','Light'],['heavy','Heavy']], ats.smoothing);
+    smoothSel.addEventListener('change', () => setAutoTraceSettings({ smoothing: smoothSel.value as any }));
+    sb.appendChild(smoothSel);
+    sb.appendChild(makeFilterSlider(`Interval (${ats.samplingInterval}px)`, ats.samplingInterval, 1, 20,
+      v => setAutoTraceSettings({ samplingInterval: v })));
+
+  } else if (traceExtractionMode === 'bar') {
+    sb.appendChild(makeFilterSlider('Tolerance', barSettings.tolerance, 0, 100,
+      v => { barSettings.tolerance = v; }));
+    sb.appendChild(makeLbl('Bar Direction'));
+    const dirSel = makeSelect([['vertical','Vertical bars'],['horizontal','Horizontal bars']], barSettings.direction);
+    dirSel.addEventListener('change', () => { barSettings.direction = dirSel.value as any; });
+    sb.appendChild(dirSel);
+    sb.appendChild(makeFilterSlider(`Min bar width (${barSettings.minBarWidth}px)`, barSettings.minBarWidth, 2, 40,
+      v => { barSettings.minBarWidth = v; }));
+
+  } else {
+    sb.appendChild(makeFilterSlider('Tolerance', scatterSettings.tolerance, 0, 100,
+      v => { scatterSettings.tolerance = v; }));
+    sb.appendChild(makeFilterSlider(`Min marker size (${scatterSettings.minBlobArea}px²)`, scatterSettings.minBlobArea, 2, 100,
+      v => { scatterSettings.minBlobArea = v; }));
+    sb.appendChild(makeFilterSlider(`Max marker size (${scatterSettings.maxBlobArea}px²)`, scatterSettings.maxBlobArea, 50, 2000,
+      v => { scatterSettings.maxBlobArea = v; }));
+    sb.appendChild(makeFilterSlider(`Min spacing (${scatterSettings.minSpacing}px)`, scatterSettings.minSpacing, 2, 40,
+      v => { scatterSettings.minSpacing = v; }));
+  }
   el.appendChild(settSec);
 
+  // Actions
   const actSec = makeSec('Actions');
   const ab = makeSecBody(actSec);
 
-  const previewBtn = makeBtn('Preview Trace', 'btn btn-primary');
+  const previewLabel = traceExtractionMode === 'curve' ? 'Preview Trace'
+    : traceExtractionMode === 'bar' ? 'Detect Bars'
+    : 'Detect Points';
+
+  const previewBtn = makeBtn(previewLabel, 'btn btn-primary');
   previewBtn.addEventListener('click', () => {
-    const result = runAutoTrace(getAutoTraceSettings());
+    let result: typeof lastResult = null;
+    if (traceExtractionMode === 'curve') {
+      result = runAutoTrace(getAutoTraceSettings());
+    } else if (traceExtractionMode === 'bar') {
+      result = detectBars(barSettings);
+    } else {
+      result = detectScatterPoints(scatterSettings);
+    }
     if (result) {
       lastResult = result;
       setPreviewData(result.previewData, result.width, result.height);
-      window.__autoTraceMod = { getPreviewData: () => ({ data: result.previewData, width: result.width, height: result.height }) };
+      window.__autoTraceMod = { getPreviewData: () => ({ data: result!.previewData, width: result!.width, height: result!.height }) };
       canvasRender();
       commitBtn.style.display = 'flex';
       commitBtn.textContent = `Commit ${result.points.length} pts →`;
