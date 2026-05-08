@@ -3,7 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>PlotVision</title>
+  <title>PlotVision — Extract Data from Any Chart</title>
+  <meta name="description" content="Free browser-based graph digitizer. Load any chart image, calibrate axes, and export clean data to CSV, Excel, or JSON. No signup required." />
+  <meta property="og:title" content="PlotVision — Extract Data from Any Chart" />
+  <meta property="og:description" content="The modern alternative to WebPlotDigitizer. Extract numerical data from chart images with precision. Free, browser-based, no signup." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="PlotVision — Extract Data from Any Chart" />
+  <meta name="twitter:description" content="Free browser-based graph digitizer. Load any chart image and export clean data to CSV, Excel, or JSON." />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -25,18 +33,24 @@
     <aside id="left-panel"></aside>
 
     <!-- Canvas -->
-    <main id="canvas-container" style="flex:1;position:relative;overflow:hidden;background:var(--color-bg);">
+    <main id="canvas-container" style="flex:1;position:relative;overflow:hidden;">
       <canvas id="main-canvas"   style="position:absolute;inset:0;display:block;"></canvas>
       <canvas id="overlay-canvas" style="position:absolute;inset:0;pointer-events:none;display:block;"></canvas>
 
-      <div id="drop-overlay" style="display:none;">
+      <div id="drop-overlay" class="hidden">
         <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12-4-4m4 4 4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21h14.878a2 2 0 0 0 1.94-1.515L22 17"/></svg>
         <p style="font-size:14px;font-weight:600;color:var(--color-accent);">Drop to load</p>
         <p style="font-size:11px;color:var(--color-text-2);">PNG · JPG · PDF · SVG · WebP</p>
       </div>
 
       <div id="empty-state">
-        <div class="empty-icon">📊</div>
+        <div class="empty-icon">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <path d="M3 9h18M9 21V9"/>
+            <polyline points="7 15 10 12 13 14 17 10"/>
+          </svg>
+        </div>
         <p class="empty-title">No image loaded</p>
         <p class="empty-sub">Drag & drop a chart, paste from clipboard (Ctrl+V), or open a file below</p>
         <button class="empty-open-btn" id="empty-open-btn">Open File</button>
@@ -82,17 +96,17 @@
 
   <!-- Export modal -->
   <div id="export-modal" style="display:none;" class="modal-backdrop">
-    <div class="modal" style="width:400px;">
+    <div class="modal" style="width:420px;">
       <div class="modal-header">
         <span class="modal-title">Export Data</span>
         <button class="modal-close" id="export-modal-close">×</button>
       </div>
-      <div class="modal-body" id="export-modal-body"></div>
+      <div id="export-modal-body"></div>
     </div>
   </div>
 
   <!-- Delete confirm -->
-  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface-3);border:1px solid var(--color-border-2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.5);padding:12px 14px;min-width:172px;">
+  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface);border:1px solid var(--color-border-2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:12px 14px;min-width:172px;">
     <p style="font-size:12px;color:var(--color-text);margin-bottom:10px;">Delete this point?</p>
     <div style="display:flex;gap:7px;justify-content:flex-end;">
       <button id="delete-cancel"  class="btn btn-ghost   btn-sm" style="width:auto;">Cancel</button>

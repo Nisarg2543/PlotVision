@@ -7,7 +7,7 @@ import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX } from
 import { openBatchPicker, isBatchActive, markCurrentDone, skipCurrent, getQueue, getCurrentIndex } from '../modules/batch';
 
 const I = {
-  logo:    `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect width="18" height="18" rx="4" fill="#22d3ee" fill-opacity="0.15"/><path d="M3 13.5 6.5 8 10 10.5 13.5 4.5" stroke="#22d3ee" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="8" r="1.2" fill="#22d3ee"/><circle cx="10" cy="10.5" r="1.2" fill="#22d3ee"/><circle cx="13.5" cy="4.5" r="1.2" fill="#22d3ee"/></svg>`,
+  logo:    `<svg width="18" height="18" viewBox="0 0 18 18" fill="none"><rect width="18" height="18" rx="4" fill="#2563eb" fill-opacity="0.12"/><path d="M3 13.5 6.5 8 10 10.5 13.5 4.5" stroke="#2563eb" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="6.5" cy="8" r="1.2" fill="#2563eb"/><circle cx="10" cy="10.5" r="1.2" fill="#2563eb"/><circle cx="13.5" cy="4.5" r="1.2" fill="#2563eb"/></svg>`,
   open:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>`,
   save:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
   load:    `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
@@ -138,30 +138,47 @@ function openExportModal(): void {
   const state = getState();
   const activeDs = state.datasets.find(d => d.id === state.activeDatasetId);
 
+  const totalPoints = state.datasets.reduce((sum, d) => sum + d.points.length, 0);
+  const dsCount = state.datasets.length;
+  const baseFilename = state.image.filename.replace(/\.[^.]+$/, '') || 'plotvision';
+
   body.innerHTML = '';
-  body.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:14px 18px 18px;';
+
+  // Summary strip
+  const summary = document.createElement('div');
+  summary.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 18px 10px;border-bottom:1px solid var(--color-border);background:var(--color-surface-3);font-size:11px;color:var(--color-muted);gap:12px;';
+  summary.innerHTML = `
+    <span><strong style="color:var(--color-text);font-family:var(--font-mono);">${totalPoints}</strong> points &nbsp;·&nbsp; <strong style="color:var(--color-text);font-family:var(--font-mono);">${dsCount}</strong> dataset${dsCount !== 1 ? 's' : ''}</span>
+    <span style="font-family:var(--font-mono);color:var(--color-text-2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;" title="${baseFilename}">${baseFilename}</span>
+  `;
+  body.appendChild(summary);
+
+  // Format buttons
+  const btnWrap = document.createElement('div');
+  btnWrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;padding:12px 18px 16px;';
 
   const rows: { label: string; sub: string; action: () => void; disabled?: boolean }[] = [
-    { label: 'CSV — All datasets',   sub: 'Comma-separated, one row per point',    action: () => exportCSV() },
-    { label: 'CSV — Active dataset', sub: activeDs ? `"${activeDs.name}"` : 'No dataset selected', action: () => activeDs ? exportCSV(activeDs.id) : undefined, disabled: !activeDs },
-    { label: 'Excel (.xlsx)',        sub: 'Each dataset on a separate sheet',       action: () => exportExcel() },
-    { label: 'JSON',                 sub: 'Structured with calibration metadata',   action: () => exportJSON() },
-    { label: 'Copy to Clipboard',    sub: 'Tab-separated, paste into Excel/Sheets', action: () => exportClipboard() },
-    { label: 'LaTeX table',          sub: '\\tabular environment',                 action: () => exportLaTeX() },
+    { label: 'CSV — All datasets',   sub: `${totalPoints} points across all datasets`,       action: () => exportCSV() },
+    { label: 'CSV — Active dataset', sub: activeDs ? `"${activeDs.name}" · ${activeDs.points.length} pts` : 'No dataset selected', action: () => activeDs ? exportCSV(activeDs.id) : undefined, disabled: !activeDs },
+    { label: 'Excel (.xlsx)',        sub: 'Each dataset on a separate sheet',                action: () => exportExcel() },
+    { label: 'JSON',                 sub: 'Structured with calibration metadata',            action: () => exportJSON() },
+    { label: 'Copy to Clipboard',    sub: 'Tab-separated, paste into Excel/Sheets',          action: () => exportClipboard() },
+    { label: 'LaTeX table',          sub: '\\tabular{cc} environment',                      action: () => exportLaTeX() },
   ];
 
   for (const row of rows) {
     const btn = document.createElement('button');
     btn.disabled = !!row.disabled;
-    btn.style.cssText = `display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:10px 12px;border-radius:7px;border:1px solid var(--color-border);background:var(--color-bg);cursor:${row.disabled ? 'not-allowed' : 'pointer'};opacity:${row.disabled ? '0.4' : '1'};transition:border-color 0.12s,background 0.12s;text-align:left;`;
+    btn.style.cssText = `display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 12px;border-radius:7px;border:1px solid var(--color-border);background:var(--color-surface);cursor:${row.disabled ? 'not-allowed' : 'pointer'};opacity:${row.disabled ? '0.4' : '1'};transition:border-color 0.12s,background 0.12s;text-align:left;`;
     btn.innerHTML = `<span style="font-size:12px;font-weight:600;color:var(--color-text);">${row.label}</span><span style="font-size:11px;color:var(--color-muted);">${row.sub}</span>`;
     if (!row.disabled) {
-      btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'var(--color-border-2)'; btn.style.background = 'var(--color-faint)'; });
-      btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--color-border)';   btn.style.background = 'var(--color-bg)'; });
+      btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'color-mix(in srgb,var(--color-accent) 40%,transparent)'; btn.style.background = 'var(--color-accent-dim)'; });
+      btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--color-border)'; btn.style.background = 'var(--color-surface)'; });
       btn.addEventListener('click', () => { row.action(); modal.style.display = 'none'; });
     }
-    body.appendChild(btn);
+    btnWrap.appendChild(btn);
   }
+  body.appendChild(btnWrap);
 
   modal.style.display = 'flex';
   document.getElementById('export-modal-close')!.onclick = () => { modal.style.display = 'none'; };
@@ -181,7 +198,7 @@ function openBatchStatusModal(): void {
   modal.className = 'modal';
   modal.style.width = '420px';
 
-  const statusColors: Record<string, string> = { pending: '#555', active: '#22d3ee', done: '#34d399', skipped: '#f59e0b' };
+  const statusColors: Record<string, string> = { pending: '#a1a1aa', active: '#2563eb', done: '#16a34a', skipped: '#d97706' };
 
   modal.innerHTML = `
     <div class="modal-header">
@@ -190,7 +207,7 @@ function openBatchStatusModal(): void {
     </div>
     <div style="max-height:300px;overflow-y:auto;padding:12px 18px;display:flex;flex-direction:column;gap:6px;">
       ${queue.map((item, i) => `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:${i === idx ? 'color-mix(in srgb,#22d3ee 6%,transparent)' : 'var(--color-bg)'};border:1px solid ${i === idx ? '#22d3ee33' : 'var(--color-border)'};">
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;background:${i === idx ? 'var(--color-accent-dim)' : 'var(--color-bg)'};border:1px solid ${i === idx ? 'color-mix(in srgb,#2563eb 25%,transparent)' : 'var(--color-border)'};">
           <div style="width:8px;height:8px;border-radius:50%;background:${statusColors[item.status]};flex-shrink:0;"></div>
           <span style="flex:1;font-size:12px;color:var(--color-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.file.name}</span>
           <span style="font-size:10px;color:var(--color-muted);text-transform:uppercase;letter-spacing:0.05em;">${item.status}</span>
