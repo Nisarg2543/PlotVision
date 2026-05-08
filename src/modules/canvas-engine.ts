@@ -26,6 +26,16 @@ let mouseCanvasX = 0, mouseCanvasY = 0;
 let rafPending = false;
 let deletePopoverTarget: { datasetId: string; pointId: string } | null = null;
 
+// Touch interaction state
+let touchStartCanvasX = 0, touchStartCanvasY = 0;
+let touchStartPanX = 0, touchStartPanY = 0;
+let touchMoved = false;
+let touchStartTime = 0;
+let pinchStartDist = 0;
+let pinchStartZoom = 0;
+let pinchMidCanvasX = 0, pinchMidCanvasY = 0;
+let pinchStartPanX = 0, pinchStartPanY = 0;
+
 let mainCanvas: HTMLCanvasElement;
 let overlayCanvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
@@ -79,6 +89,12 @@ export function initCanvas(cont: HTMLElement): void {
   mainCanvas.addEventListener('mouseleave', handleMouseLeave);
   mainCanvas.addEventListener('contextmenu', handleContextMenu);
   mainCanvas.addEventListener('dblclick', handleDblClick);
+
+  // Touch support
+  mainCanvas.addEventListener('touchstart',  handleTouchStart,  { passive: false });
+  mainCanvas.addEventListener('touchmove',   handleTouchMove,   { passive: false });
+  mainCanvas.addEventListener('touchend',    handleTouchEnd,    { passive: false });
+  mainCanvas.addEventListener('touchcancel', handleTouchCancel, { passive: false });
 
   // Delete popover buttons
   document.getElementById('delete-confirm')?.addEventListener('click', () => {
@@ -540,6 +556,155 @@ function handleMouseUp(_e: MouseEvent): void {
   isDraggingPoint = null;
   isDraggingCalibPoint = null;
   mainCanvas.style.cursor = getCursorForTool(getState().activeTool);
+}
+
+// ── Touch handlers ────────────────────────────────────────────────────────────
+
+function getTouchCanvasPos(touch: Touch): { x: number; y: number } {
+  const rect = mainCanvas.getBoundingClientRect();
+  return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+}
+
+function handleTouchStart(e: TouchEvent): void {
+  e.preventDefault();
+  const state = getState();
+
+  if (e.touches.length === 1) {
+    const pos = getTouchCanvasPos(e.touches[0]);
+    touchStartCanvasX = pos.x;
+    touchStartCanvasY = pos.y;
+    touchStartPanX = state.canvas.panX;
+    touchStartPanY = state.canvas.panY;
+    touchMoved = false;
+    touchStartTime = Date.now();
+
+    // Update crosshair position
+    mouseCanvasX = pos.x; mouseCanvasY = pos.y;
+    const { imgX, imgY } = canvasToImage(pos.x, pos.y, state.canvas.zoom, state.canvas.panX, state.canvas.panY);
+    mouseImgX = imgX; mouseImgY = imgY;
+    render();
+
+  } else if (e.touches.length === 2) {
+    touchMoved = true;
+    const rect = mainCanvas.getBoundingClientRect();
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dx = t0.clientX - t1.clientX;
+    const dy = t0.clientY - t1.clientY;
+    pinchStartDist = Math.sqrt(dx * dx + dy * dy);
+    pinchStartZoom = state.canvas.zoom;
+    pinchMidCanvasX = ((t0.clientX + t1.clientX) / 2) - rect.left;
+    pinchMidCanvasY = ((t0.clientY + t1.clientY) / 2) - rect.top;
+    pinchStartPanX = state.canvas.panX;
+    pinchStartPanY = state.canvas.panY;
+    // Compute image point under pinch center — stays fixed during pinch
+    const { imgX, imgY } = canvasToImage(pinchMidCanvasX, pinchMidCanvasY, state.canvas.zoom, state.canvas.panX, state.canvas.panY);
+    mouseImgX = imgX; mouseImgY = imgY;
+  }
+}
+
+function handleTouchMove(e: TouchEvent): void {
+  e.preventDefault();
+
+  if (e.touches.length === 1) {
+    const pos = getTouchCanvasPos(e.touches[0]);
+    const dx = pos.x - touchStartCanvasX;
+    const dy = pos.y - touchStartCanvasY;
+    if (Math.abs(dx) > 5 || Math.abs(dy) > 5) touchMoved = true;
+
+    setState(draft => {
+      draft.canvas.panX = touchStartPanX + dx;
+      draft.canvas.panY = touchStartPanY + dy;
+    });
+
+    mouseCanvasX = pos.x; mouseCanvasY = pos.y;
+    const state = getState();
+    const { imgX, imgY } = canvasToImage(pos.x, pos.y, state.canvas.zoom, state.canvas.panX, state.canvas.panY);
+    mouseImgX = imgX; mouseImgY = imgY;
+
+  } else if (e.touches.length === 2) {
+    const t0 = e.touches[0], t1 = e.touches[1];
+    const dx = t0.clientX - t1.clientX;
+    const dy = t0.clientY - t1.clientY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (pinchStartDist === 0) return;
+
+    const scale = dist / pinchStartDist;
+    const newZoom = clamp(pinchStartZoom * scale, 0.02, 80);
+    // Keep the image point under the pinch center fixed
+    const imgX = (pinchMidCanvasX - pinchStartPanX) / pinchStartZoom;
+    const imgY = (pinchMidCanvasY - pinchStartPanY) / pinchStartZoom;
+    setState(draft => {
+      draft.canvas.zoom = newZoom;
+      draft.canvas.panX = pinchMidCanvasX - imgX * newZoom;
+      draft.canvas.panY = pinchMidCanvasY - imgY * newZoom;
+    });
+  }
+}
+
+function handleTouchEnd(e: TouchEvent): void {
+  e.preventDefault();
+
+  // All fingers lifted — check for tap
+  if (e.touches.length === 0 && !touchMoved) {
+    const elapsed = Date.now() - touchStartTime;
+    if (elapsed < 400) {
+      // Tap: fire tool action at touch start position
+      const state = getState();
+      const { zoom, panX, panY } = state.canvas;
+      const { imgX, imgY } = canvasToImage(touchStartCanvasX, touchStartCanvasY, zoom, panX, panY);
+
+      switch (state.activeTool) {
+        case 'calibrate':
+          if (onCalibClick) onCalibClick(imgX, imgY);
+          break;
+        case 'add-point':
+          if (onDigitizerClick) onDigitizerClick(imgX, imgY);
+          break;
+        case 'measure':
+          handleMeasureClick(imgX, imgY);
+          break;
+        case 'auto-trace': {
+          const hex = pickColorAtPixel(imgX, imgY);
+          setAutoTraceSettings({ targetColor: hex });
+          const picker = document.querySelector('input[type="color"]') as HTMLInputElement | null;
+          if (picker) picker.value = hex;
+          showToast(`Color picked: ${hex}`, 'info', 1500);
+          break;
+        }
+        case 'eraser': {
+          const hit = hitTestDataPoint(touchStartCanvasX, touchStartCanvasY);
+          if (hit && onDeletePoint) onDeletePoint(hit.dataset.id, hit.point.id);
+          break;
+        }
+      }
+    }
+  }
+
+  // Clean up drag state when last finger lifts
+  if (e.touches.length === 0) {
+    if (isDraggingPoint && onPointDragEnd) {
+      const state = getState();
+      for (const ds of state.datasets) {
+        const pt = ds.points.find(p => p.id === isDraggingPoint);
+        if (pt) { onPointDragEnd(ds.id, pt.id, pt.pixelX, pt.pixelY); break; }
+      }
+    }
+    isDraggingPoint = null;
+    isDraggingCalibPoint = null;
+    pinchStartDist = 0;
+    mouseCanvasX = -999; mouseCanvasY = -999;
+    render();
+  }
+}
+
+function handleTouchCancel(e: TouchEvent): void {
+  e.preventDefault();
+  isPanning = false;
+  isDraggingPoint = null;
+  isDraggingCalibPoint = null;
+  pinchStartDist = 0;
+  mouseCanvasX = -999; mouseCanvasY = -999;
+  render();
 }
 
 function handleMouseLeave(): void {

@@ -283,6 +283,17 @@
       transition: border-color 0.12s, color 0.12s;
     }
     .axis-tag:hover { border-color: var(--border-2); color: var(--text); }
+    .axis-tag-soon {
+      padding: 5px 14px; border-radius: 20px;
+      border: 1px dashed var(--border); background: var(--surface-2);
+      font-size: 12px; font-weight: 500; color: var(--muted);
+      position: relative;
+    }
+    .axis-tag-soon::after {
+      content: 'soon'; font-size: 9px; font-weight: 700; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--muted);
+      margin-left: 6px; vertical-align: 1px;
+    }
 
     /* ── Export formats ───────────────────────────────── */
     .export-grid {
@@ -554,10 +565,10 @@
         <span class="axis-tag">Semi-log X</span>
         <span class="axis-tag">Semi-log Y</span>
         <span class="axis-tag">Log-log</span>
-        <span class="axis-tag">Polar (R-θ)</span>
-        <span class="axis-tag">Ternary</span>
-        <span class="axis-tag">Date / Time X</span>
-        <span class="axis-tag">Map / Pixels</span>
+        <span class="axis-tag-soon">Polar (R-θ)</span>
+        <span class="axis-tag-soon">Ternary</span>
+        <span class="axis-tag-soon">Date / Time X</span>
+        <span class="axis-tag-soon">Map / Pixels</span>
       </div>
     </div>
 

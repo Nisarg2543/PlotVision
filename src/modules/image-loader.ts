@@ -47,8 +47,9 @@ export function initImageLoader(container: HTMLElement): void {
     }
   });
 
-  // Empty state open button
+  // Empty state buttons
   document.getElementById('empty-open-btn')?.addEventListener('click', openFilePicker);
+  document.getElementById('empty-demo-btn')?.addEventListener('click', () => void loadDemoChart());
 }
 
 export function openFilePicker(): void {
@@ -133,4 +134,29 @@ export async function goToPage(pageNum: number): Promise<void> {
 
 export function getPDFDoc(): any {
   return pdfDoc;
+}
+
+export async function loadDemoChart(): Promise<void> {
+  try {
+    const resp = await fetch('/demo-chart.svg');
+    if (!resp.ok) throw new Error('Demo chart not found');
+    const blob = await resp.blob();
+    // Render SVG via <img> → canvas → ImageBitmap for broadest compat
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve();
+      img.onerror = () => reject(new Error('Failed to render demo chart'));
+      img.src = url;
+    });
+    const offscreen = document.createElement('canvas');
+    offscreen.width = img.naturalWidth || 780;
+    offscreen.height = img.naturalHeight || 580;
+    offscreen.getContext('2d')!.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+    const bitmap = await createImageBitmap(offscreen);
+    handleBitmapLoaded(bitmap, 'demo-chart.svg', 1, 1);
+  } catch (err) {
+    showToast(`Could not load demo chart: ${(err as Error).message}`, 'error');
+  }
 }
