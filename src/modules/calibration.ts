@@ -42,10 +42,12 @@ let ternaryBPx = 0, ternaryBPy = 0;
 let barY1Px = 0, barY1Py = 0;
 let barY2Px = 0, barY2Py = 0;
 
-// Circular Chart Recorder scratch state
+// Circular Chart Recorder scratch state (8-step wizard)
 let circCenterPx = 0, circCenterPy = 0;
-let circRInnerPx = 0, circRInnerPy = 0;
-let circT1 = { px: 0, py: 0, val: 0 };
+let circR1Px = 0, circR1Py = 0, circR1Val = 0;
+let circR2Px = 0, circR2Py = 0;
+let circT1Px = 0, circT1Py = 0, circT1Val = 0;
+let circT2Px = 0, circT2Py = 0;
 
 export function startCalibration(): void {
   const { axisType } = getState().calibration;
@@ -122,22 +124,12 @@ export function handleCalibClick(imgX: number, imgY: number): void {
     return;
   }
 
-  // Circular Chart Recorder calibration clicks
-  if (step === 'circ-place-center') {
-    circCenterPx = imgX; circCenterPy = imgY;
-    setState(d => { d.calibration.step = 'circ-place-r-ref'; });
-    return;
-  }
-  if (step === 'circ-place-r-ref') {
-    circRInnerPx = imgX; circRInnerPy = imgY;
-    setState(d => { d.calibration.step = 'circ-await-r-values'; });
-    return;
-  }
-  if (step === 'circ-place-t-ref') {
-    circT1.px = imgX; circT1.py = imgY;
-    setState(d => { d.calibration.step = 'circ-await-t-values'; });
-    return;
-  }
+  // Circular Chart Recorder calibration clicks (8-step)
+  if (step === 'circ-place-center') { circCenterPx = imgX; circCenterPy = imgY; setState(d => { d.calibration.step = 'circ-place-r1'; }); return; }
+  if (step === 'circ-place-r1')     { circR1Px = imgX; circR1Py = imgY;         setState(d => { d.calibration.step = 'circ-await-r1'; }); return; }
+  if (step === 'circ-place-r2')     { circR2Px = imgX; circR2Py = imgY;         setState(d => { d.calibration.step = 'circ-await-r2'; }); return; }
+  if (step === 'circ-place-t1')     { circT1Px = imgX; circT1Py = imgY;         setState(d => { d.calibration.step = 'circ-await-t1'; }); return; }
+  if (step === 'circ-place-t2')     { circT2Px = imgX; circT2Py = imgY;         setState(d => { d.calibration.step = 'circ-await-t2'; }); return; }
 
   // Standard XY calibration clicks
   const placeSteps: CalibrationStep[] = ['place-x1', 'place-x2', 'place-y1', 'place-y2'];
@@ -273,23 +265,40 @@ export function handleBarChartValueConfirm(which: 'y1' | 'y2', valueStr: string)
   }
 }
 
-export function handleCircularRValuesConfirm(innerVal: number, _outerVal: number): void {
-  setState(d => {
-    d.calibration.points.push({ id: uid(), role: 'y1', pixelX: circRInnerPx, pixelY: circRInnerPy, dataX: null, dataY: innerVal });
-    d.calibration.step = 'circ-place-t-ref';
-  });
-  showToast(`Value range set. Now click a reference point for time.`, 'info');
+// Circular value confirms — one function per await step
+export function handleCircularR1Confirm(val: number): void {
+  if (isNaN(val)) { showToast('Enter a valid number', 'warning'); return; }
+  circR1Val = val;
+  setState(d => { d.calibration.step = 'circ-place-r2'; });
 }
 
-export function handleCircularTValuesConfirm(t1Val: number, t2Val: number, t2Px: number, t2Py: number, clockwise: boolean): void {
-  circT1.val = t1Val;
-  const innerVal = getState().calibration.points.find(p => p.role === 'y1')?.dataY ?? 0;
+export function handleCircularR2Confirm(val: number): void {
+  if (isNaN(val)) { showToast('Enter a valid number', 'warning'); return; }
+  // Store outer radius value temporarily in a calibration point slot
+  setState(d => {
+    d.calibration.points = d.calibration.points.filter(p => p.role !== 'x2');
+    d.calibration.points.push({ id: uid(), role: 'x2', pixelX: circR2Px, pixelY: circR2Py, dataX: val, dataY: 0 });
+    d.calibration.step = 'circ-place-t1';
+  });
+}
+
+export function handleCircularT1Confirm(val: number): void {
+  if (isNaN(val)) { showToast('Enter a valid number', 'warning'); return; }
+  circT1Val = val;
+  setState(d => { d.calibration.step = 'circ-place-t2'; });
+}
+
+export function handleCircularT2Confirm(t2Val: number, clockwise: boolean): void {
+  if (isNaN(t2Val)) { showToast('Enter a valid number', 'warning'); return; }
+  const outerValPt = getState().calibration.points.find(p => p.role === 'x2');
+  const r2Val = outerValPt?.dataX ?? 0;
   const transform: CoordinateTransform = {
     axisType: 'circular',
-    x1px: circCenterPx, x1py: circCenterPy, x1Data: 0,         // center
-    x2px: circRInnerPx, x2py: circRInnerPy, x2Data: innerVal,  // inner radius value
-    y1px: circT1.px,    y1py: circT1.py,    y1Data: t1Val,     // time ref 1
-    y2px: t2Px,         y2py: t2Py,         y2Data: t2Val * (clockwise ? -1 : 1), // encode CW in sign
+    x1px: circR1Px, x1py: circR1Py, x1Data: circR1Val,           // inner radius ref + value
+    x2px: circR2Px, x2py: circR2Py, x2Data: r2Val,               // outer radius ref + value
+    y1px: circT1Px, y1py: circT1Py, y1Data: circT1Val,           // time ref 1 + value
+    y2px: circT2Px, y2py: circT2Py, y2Data: t2Val * (clockwise ? -1 : 1), // time ref 2 (neg = CW)
+    extra: { centerPx: circCenterPx, centerPy: circCenterPy },
   };
   setState(d => {
     d.calibration.transform = transform;

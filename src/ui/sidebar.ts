@@ -3,8 +3,8 @@ import {
   addDataset, removeDataset, setActiveDataset, toggleDatasetVisibility,
   renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints, clearDatasetPoints,
 } from '../modules/datasets';
-import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration, handlePolarRConfirm, handleBarChartValueConfirm, handleCircularRValuesConfirm, handleCircularTValuesConfirm } from '../modules/calibration';
-import { updatePointData, deletePoint as deleteDataPoint } from '../modules/digitizer';
+import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration, handlePolarRConfirm, handleBarChartValueConfirm, handleCircularR1Confirm, handleCircularR2Confirm, handleCircularT1Confirm, handleCircularT2Confirm } from '../modules/calibration';
+import { updatePointData, deletePoint as deleteDataPoint, getPendingBarLabel, confirmBarLabel } from '../modules/digitizer';
 import { goToPage } from '../modules/image-loader';
 import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, runXStepTrace, runCustomIndependents, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
 import { defaultBarSettings, detectBars, detectAllBarLayers } from '../modules/bar-detector';
@@ -197,40 +197,63 @@ function renderCalibTab(el: HTMLElement): void {
       }
 
     } else if (cal.axisType === 'circular') {
-      // Circular chart recorder: multi-step wizard
-      const steps = ['circ-place-center','circ-place-r-ref','circ-await-r-values','circ-place-t-ref','circ-await-t-values'];
-      const stepLabels = ['Click chart center','Click inner radius point','Enter inner/outer values','Click time reference point','Enter time values + 2nd point'];
+      // Circular chart recorder: 8-step wizard
+      const steps = [
+        'circ-place-center',
+        'circ-place-r1','circ-await-r1',
+        'circ-place-r2','circ-await-r2',
+        'circ-place-t1','circ-await-t1',
+        'circ-place-t2','circ-await-t2',
+      ];
+      const stepHints: Record<string, string> = {
+        'circ-place-center': 'Click the center of the circular chart',
+        'circ-place-r1':     'Click a point on the inner radius ring',
+        'circ-await-r1':     'Enter the data value at the inner radius',
+        'circ-place-r2':     'Click a point on the outer radius ring',
+        'circ-await-r2':     'Enter the data value at the outer radius',
+        'circ-place-t1':     'Click a time reference point (e.g. 12 o\'clock)',
+        'circ-await-t1':     'Enter the time value at that reference point',
+        'circ-place-t2':     'Click a second time reference point',
+        'circ-await-t2':     'Enter the time value at the 2nd reference point',
+      };
       const idx = steps.indexOf(cal.step);
       const pips = makeDiv('calib-progress');
       steps.forEach((_, i) => { const pip = makeDiv('calib-pip'); if (i < idx) pip.classList.add('done'); if (i === idx) pip.classList.add('active'); pips.appendChild(pip); });
       wizEl.appendChild(pips);
-      const lbl = makeDiv('calib-action-label'); lbl.textContent = `Step ${idx + 1} of 5`; wizEl.appendChild(lbl);
-      const hint = makeDiv('calib-hint'); hint.textContent = stepLabels[idx] ?? ''; wizEl.appendChild(hint);
+      const lbl = makeDiv('calib-action-label'); lbl.textContent = `Step ${idx + 1} of 9`; wizEl.appendChild(lbl);
+      const hint = makeDiv('calib-hint'); hint.textContent = stepHints[cal.step] ?? ''; wizEl.appendChild(hint);
 
-      if (cal.step === 'circ-await-r-values') {
-        const innerInp = document.createElement('input'); innerInp.className = 'pv-input'; innerInp.type = 'number'; innerInp.placeholder = 'Inner radius value';
-        innerInp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
-        const outerInp = document.createElement('input'); outerInp.className = 'pv-input'; outerInp.type = 'number'; outerInp.placeholder = 'Outer radius value';
-        outerInp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
-        wizEl.appendChild(innerInp); wizEl.appendChild(outerInp);
+      const mkNumInput = (placeholder: string) => {
+        const inp = document.createElement('input'); inp.className = 'pv-input'; inp.type = 'number'; inp.placeholder = placeholder;
+        inp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);'; return inp;
+      };
+      const mkConfirm = (onClick: () => void) => {
         const btn = makeBtn('Confirm →', 'btn btn-primary'); btn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
-        btn.addEventListener('click', () => handleCircularRValuesConfirm(parseFloat(innerInp.value), parseFloat(outerInp.value)));
-        wizEl.appendChild(btn); setTimeout(() => innerInp.focus(), 50);
-      } else if (cal.step === 'circ-await-t-values') {
-        const t1Inp = document.createElement('input'); t1Inp.className = 'pv-input'; t1Inp.type = 'number'; t1Inp.placeholder = 'Time at ref point';
-        t1Inp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
-        const t2Inp = document.createElement('input'); t2Inp.className = 'pv-input'; t2Inp.type = 'number'; t2Inp.placeholder = 'Time at 2nd ref point';
-        t2Inp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
-        const t2xInp = document.createElement('input'); t2xInp.className = 'pv-input'; t2xInp.type = 'number'; t2xInp.placeholder = '2nd ref point X (px)';
-        t2xInp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
-        const t2yInp = document.createElement('input'); t2yInp.className = 'pv-input'; t2yInp.type = 'number'; t2yInp.placeholder = '2nd ref point Y (px)';
-        t2yInp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
-        wizEl.appendChild(t1Inp); wizEl.appendChild(t2Inp); wizEl.appendChild(t2xInp); wizEl.appendChild(t2yInp);
-        const cwCheck = makeCheckbox('Clockwise', false, () => {});
+        btn.addEventListener('click', onClick); return btn;
+      };
+
+      if (cal.step === 'circ-await-r1') {
+        const inp = mkNumInput('Value at inner radius'); wizEl.appendChild(inp);
+        wizEl.appendChild(mkConfirm(() => handleCircularR1Confirm(parseFloat(inp.value))));
+        setTimeout(() => inp.focus(), 50);
+      } else if (cal.step === 'circ-await-r2') {
+        const inp = mkNumInput('Value at outer radius'); wizEl.appendChild(inp);
+        wizEl.appendChild(mkConfirm(() => handleCircularR2Confirm(parseFloat(inp.value))));
+        setTimeout(() => inp.focus(), 50);
+      } else if (cal.step === 'circ-await-t1') {
+        const inp = mkNumInput('Time value at this point'); wizEl.appendChild(inp);
+        wizEl.appendChild(mkConfirm(() => handleCircularT1Confirm(parseFloat(inp.value))));
+        setTimeout(() => inp.focus(), 50);
+      } else if (cal.step === 'circ-await-t2') {
+        const inp = mkNumInput('Time value at 2nd point'); wizEl.appendChild(inp);
+        const cwCheck = makeCheckbox('Clockwise rotation', false, () => {});
         wizEl.appendChild(cwCheck);
-        const btn = makeBtn('Confirm →', 'btn btn-primary'); btn.style.cssText = 'margin:8px 12px 12px;width:calc(100% - 24px);';
-        btn.addEventListener('click', () => handleCircularTValuesConfirm(parseFloat(t1Inp.value), parseFloat(t2Inp.value), parseFloat(t2xInp.value), parseFloat(t2yInp.value), (cwCheck.querySelector('input') as HTMLInputElement)?.checked ?? false));
-        wizEl.appendChild(btn); setTimeout(() => t1Inp.focus(), 50);
+        const confirmBtn = mkConfirm(() => {
+          const cw = (cwCheck.querySelector('input') as HTMLInputElement)?.checked ?? false;
+          handleCircularT2Confirm(parseFloat(inp.value), cw);
+        });
+        wizEl.appendChild(confirmBtn);
+        setTimeout(() => inp.focus(), 50);
       }
 
     } else if (cal.axisType === 'ternary') {
@@ -483,6 +506,27 @@ function renderPerspectiveSection(el: HTMLElement): void {
 function renderDataTab(el: HTMLElement): void {
   const state = getState();
 
+  // Bar-chart label prompt — shown immediately after clicking a bar
+  const pending = getPendingBarLabel();
+  if (pending) {
+    const promptSec = makeSec('Enter Category Label');
+    const pb = makeSecBody(promptSec);
+    const hint = makeDiv('');
+    hint.style.cssText = 'font-size:11px;color:var(--color-muted);margin-bottom:6px;';
+    hint.textContent = 'Type the category name for this bar, then confirm:';
+    pb.appendChild(hint);
+    const inp = document.createElement('input');
+    inp.className = 'pv-input'; inp.type = 'text'; inp.placeholder = 'e.g. Q1 2024, Apple, Group A…';
+    inp.style.cssText = 'margin:0 0 6px;width:100%;';
+    pb.appendChild(inp);
+    const confirmBtn = makeBtn('Confirm label →', 'btn btn-primary');
+    confirmBtn.addEventListener('click', () => { confirmBarLabel(inp.value); initSidebarDebounced(); });
+    inp.addEventListener('keydown', e => { if (e.key === 'Enter') { confirmBarLabel(inp.value); initSidebarDebounced(); } });
+    pb.appendChild(confirmBtn);
+    el.appendChild(promptSec);
+    setTimeout(() => inp.focus(), 50);
+  }
+
   const dsSec = makeSec('Datasets');
 
   for (const ds of state.datasets) {
@@ -553,15 +597,24 @@ function renderDataTab(el: HTMLElement): void {
     wrap.style.cssText = 'overflow-y:auto;max-height:220px;';
     const table = document.createElement('table');
     table.className = 'point-table';
-    table.innerHTML = `<thead><tr><th style="width:28px">#</th><th>X</th><th>Y</th><th style="width:24px"></th></tr></thead>`;
+    const [colX, colY] = getAxisColumnLabels(state.calibration.axisType);
+    const isTernary = state.calibration.axisType === 'ternary';
+    table.innerHTML = `<thead><tr><th style="width:28px">#</th><th>${colX}</th><th>${colY}</th>${isTernary ? '<th>C%</th>' : ''}<th style="width:24px"></th></tr></thead>`;
     const tbody = document.createElement('tbody');
 
     activeDs.points.slice(0, 500).forEach((pt, i) => {
       const tr = document.createElement('tr');
+      const xDisplay = formatCellX(pt, state.calibration.axisType);
+      const yDisplay = state.calibration.axisType === 'polar' || state.calibration.axisType === 'log-polar'
+        ? pt.dataY.toFixed(2) + '°'
+        : pt.dataY.toPrecision(6);
+      const xEditable = state.calibration.axisType !== 'bar-chart' && state.calibration.axisType !== 'date-x';
+      const cPct = isTernary ? `<td style="color:var(--color-muted);font-size:10px;">${(100 - pt.dataX - pt.dataY).toFixed(2)}%</td>` : '';
       tr.innerHTML = `
         <td style="color:var(--color-muted)">${i + 1}</td>
-        <td contenteditable="true" data-field="x" data-id="${pt.id}">${pt.dataX.toPrecision(6)}</td>
-        <td contenteditable="true" data-field="y" data-id="${pt.id}">${pt.dataY.toPrecision(6)}</td>
+        <td ${xEditable ? 'contenteditable="true"' : ''} data-field="x" data-id="${pt.id}">${xDisplay}</td>
+        <td contenteditable="true" data-field="y" data-id="${pt.id}">${yDisplay}</td>
+        ${cPct}
         <td><button class="icon-btn danger" data-delete="${pt.id}" title="Delete">×</button></td>
       `;
       tbody.appendChild(tr);
@@ -1289,6 +1342,26 @@ function renderMeasureTab(el: HTMLElement): void {
 }
 
 // ── DOM helpers ─────────────────────────────────────────────────
+
+// ── Axis-aware column label helpers ───────────────────────────
+
+function getAxisColumnLabels(axisType: string): [string, string] {
+  if (axisType === 'polar' || axisType === 'log-polar') return ['r', 'θ°'];
+  if (axisType === 'ternary')    return ['A%', 'B%'];
+  if (axisType === 'date-x')    return ['Date', 'Y'];
+  if (axisType === 'bar-chart') return ['Category', 'Value'];
+  if (axisType === 'circular')  return ['Time', 'Value'];
+  return ['X', 'Y'];
+}
+
+function formatCellX(pt: import('../state/types').DataPoint, axisType: string): string {
+  if (axisType === 'bar-chart') return pt.label ?? '—';
+  if (axisType === 'date-x') {
+    const d = new Date(pt.dataX);
+    return isNaN(d.getTime()) ? String(pt.dataX) : d.toLocaleString();
+  }
+  return pt.dataX.toPrecision(6);
+}
 
 function makeSec(title: string): HTMLElement {
   const el = document.createElement('div');

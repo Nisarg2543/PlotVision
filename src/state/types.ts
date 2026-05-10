@@ -15,8 +15,12 @@ export type CalibrationStep =
   | 'ternary-place-a' | 'ternary-place-b' | 'ternary-place-c'
   // Bar Chart wizard (2-point Y calibration)
   | 'bar-place-y1' | 'bar-await-y1-value' | 'bar-place-y2' | 'bar-await-y2-value'
-  // Circular Chart Recorder wizard
-  | 'circ-place-center' | 'circ-place-r-ref' | 'circ-await-r-values' | 'circ-place-t-ref' | 'circ-await-t-values';
+  // Circular Chart Recorder wizard (8 steps)
+  | 'circ-place-center'
+  | 'circ-place-r1' | 'circ-await-r1'   // inner radius click + value
+  | 'circ-place-r2' | 'circ-await-r2'   // outer radius click + value
+  | 'circ-place-t1' | 'circ-await-t1'   // time ref 1 click + value
+  | 'circ-place-t2' | 'circ-await-t2';  // time ref 2 click + value + clockwise
 
 export type CalibPointRole = 'x1' | 'x2' | 'y1' | 'y2';
 
@@ -35,6 +39,8 @@ export interface CoordinateTransform {
   x2px: number; x2py: number; x2Data: number;
   y1px: number; y1py: number; y1Data: number;
   y2px: number; y2py: number; y2Data: number;
+  // Overflow storage for axis types that need more than 4 points (e.g. circular)
+  extra?: Record<string, number>;
 }
 
 export interface DataPoint {

@@ -62,22 +62,46 @@ export function exportCSV(datasetId?: string): void {
   }
 
   const opts = state.exportOptions;
-  const isDateX = state.calibration.axisType === 'date-x';
-  const hasLabels = datasets.some(d => d.points.some(p => p.label));
-  const isPieExport = hasLabels && datasets.every(d => d.points.every(p => p.label));
-  const lines: string[] = [
-    isPieExport ? 'Dataset,Sector,Angle(deg),Value' : hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y',
-  ];
+  const axisType = state.calibration.axisType;
+
+  // Build axis-specific header
+  let header: string;
+  if (axisType === 'polar' || axisType === 'log-polar') header = 'Dataset,r,theta_deg';
+  else if (axisType === 'ternary')    header = 'Dataset,A_pct,B_pct,C_pct';
+  else if (axisType === 'date-x')    header = 'Dataset,Date,Y';
+  else if (axisType === 'bar-chart') header = 'Dataset,Category,Value';
+  else if (axisType === 'circular')  header = 'Dataset,Time,Value';
+  else {
+    const hasLabels = datasets.some(d => d.points.some(p => p.label));
+    const isPie = hasLabels && datasets.every(d => d.points.every(p => p.label));
+    header = isPie ? 'Dataset,Sector,Angle(deg),Value' : hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y';
+  }
+
+  const lines: string[] = [header];
   for (const ds of datasets) {
     const sorted = sortPoints(ds.points, opts.sort);
     for (const pt of sorted) {
-      const name = ds.name.replace(/"/g, '""');
-      const label = (pt.label ?? '').replace(/"/g, '""');
-      const x = isDateX ? formatDate(pt.dataX, opts.dateFmt) : formatNum(pt.dataX, opts);
-      const y = formatNum(pt.dataY, opts);
-      lines.push(hasLabels
-        ? `"${name}","${label}",${x},${y}`
-        : `"${name}",${x},${y}`);
+      const name = `"${ds.name.replace(/"/g, '""')}"`;
+      let row: string;
+      if (axisType === 'ternary') {
+        const c = parseFloat((100 - pt.dataX - pt.dataY).toFixed(4));
+        row = `${name},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)},${c}`;
+      } else if (axisType === 'date-x') {
+        row = `${name},${formatDate(pt.dataX, opts.dateFmt)},${formatNum(pt.dataY, opts)}`;
+      } else if (axisType === 'bar-chart') {
+        const cat = `"${(pt.label ?? String(pt.dataX)).replace(/"/g, '""')}"`;
+        row = `${name},${cat},${formatNum(pt.dataY, opts)}`;
+      } else if (axisType === 'polar' || axisType === 'log-polar') {
+        row = `${name},${formatNum(pt.dataX, opts)},${pt.dataY.toFixed(4)}`;
+      } else {
+        // standard / pie / labeled
+        const hasLabels = header.includes('Label') || header.includes('Sector');
+        const label = `"${(pt.label ?? '').replace(/"/g, '""')}"`;
+        row = hasLabels
+          ? `${name},${label},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)}`
+          : `${name},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)}`;
+      }
+      lines.push(row);
     }
   }
 

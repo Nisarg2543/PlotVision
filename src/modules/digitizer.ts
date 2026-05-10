@@ -1,12 +1,37 @@
 import { getState, setState } from '../state/store';
 import { linearPixelToData, linearDataToPixel } from '../utils/math';
-import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel, polarPixelToData, ternaryPixelToData } from './axis-types';
+import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel, polarPixelToData, ternaryPixelToData, circularPixelToData } from './axis-types';
+import type { CircularTransform } from './axis-types';
 import { uid } from '../utils/math';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
 import type { DataPoint } from '../state/types';
 
 let selectedPointId: string | null = null;
+
+// Pending bar-chart label: set after a click when axisType === 'bar-chart'
+// The sidebar reads this and shows a label input; confirmBarLabel() writes it.
+let pendingBarLabel: { pointId: string; datasetId: string } | null = null;
+
+export function getPendingBarLabel(): { pointId: string; datasetId: string } | null {
+  return pendingBarLabel;
+}
+
+export function confirmBarLabel(label: string): void {
+  if (!pendingBarLabel) return;
+  const { pointId, datasetId } = pendingBarLabel;
+  pendingBarLabel = null;
+  setState(draft => {
+    const ds = draft.datasets.find(d => d.id === datasetId);
+    const pt = ds?.points.find(p => p.id === pointId);
+    if (pt) {
+      // dataX = category index (order within dataset)
+      const idx = ds!.points.indexOf(pt);
+      pt.dataX = idx;
+      pt.label = label || `Bar ${idx + 1}`;
+    }
+  });
+}
 
 export function handleDigitizerClick(imgX: number, imgY: number): void {
   const state = getState();
@@ -28,6 +53,11 @@ export function handleDigitizerClick(imgX: number, imgY: number): void {
     if (ds) ds.points.push(point);
   });
   selectedPointId = point.id;
+
+  // For bar-chart axis: trigger the label prompt
+  if (state.calibration.axisType === 'bar-chart') {
+    pendingBarLabel = { pointId: point.id, datasetId: state.activeDatasetId };
+  }
 }
 
 export function setSelectedPoint(id: string | null): void {
@@ -87,6 +117,19 @@ function pixelToData(imgX: number, imgY: number, t: import('../state/types').Coo
     };
     const { r, thetaDeg } = polarPixelToData(imgX, imgY, polar, axisType === 'log-polar');
     return { dataX: r, dataY: thetaDeg };
+  }
+  if (axisType === 'circular') {
+    const circ: CircularTransform = {
+      centerPx:  t.extra?.centerPx ?? t.x1px,
+      centerPy:  t.extra?.centerPy ?? t.x1py,
+      rInnerPx:  t.x1px, rInnerPy: t.x1py, rInnerVal: t.x1Data,
+      rOuterPx:  t.x2px, rOuterPy: t.x2py, rOuterVal: t.x2Data,
+      tRef1Px:   t.y1px, tRef1Py:  t.y1py, tRef1Val:  t.y1Data,
+      tRef2Px:   t.y2px, tRef2Py:  t.y2py, tRef2Val:  Math.abs(t.y2Data),
+      clockwise: t.y2Data < 0,
+    };
+    const { time, value } = circularPixelToData(imgX, imgY, circ);
+    return { dataX: time, dataY: value };
   }
   if (axisType === 'bar-chart') {
     // Y only; X is categorical (dataX = pixel X, user edits label in sidebar)

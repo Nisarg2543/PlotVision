@@ -1,4 +1,4 @@
-import { getState } from '../state/store';
+import { getState, setState } from '../state/store';
 import { setActiveTool, fitToWindow, zoomBy, enableSpacePan } from '../modules/canvas-engine';
 import { undo, redo } from '../modules/history';
 import { deleteSelectedPoints, nudgePoint, selectAllPointsInDataset, getSelectedPointId } from '../modules/digitizer';
@@ -82,6 +82,7 @@ function handleKeyDown(e: KeyboardEvent): void {
     case 'e': case 'E': setActiveTool('eraser'); break;
     case 'b': case 'B': startScaleBar(); break;
     case 'p': case 'P': startPerspective(); break;
+    case 'r': case 'R': setState(d => { d.activeTool = 'roi'; }); break;
     case '0': fitToWindow(); break;
     case '+': case '=': zoomBy(1.3); break;
     case '-': zoomBy(1 / 1.3); break;

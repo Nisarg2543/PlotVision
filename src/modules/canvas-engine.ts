@@ -685,8 +685,23 @@ function updateStatusBar(state: ReturnType<typeof getState>): void {
     } else {
       ({ dataX, dataY } = linearPixelToData(mouseImgX, mouseImgY, state.calibration.transform));
     }
-    if (xEl) xEl.textContent = dataX.toPrecision(5);
-    if (yEl) yEl.textContent = dataY.toPrecision(5);
+    const at = state.calibration.axisType;
+    if (at === 'polar' || at === 'log-polar') {
+      if (xEl) xEl.textContent = `r=${dataX.toPrecision(4)}`;
+      if (yEl) yEl.textContent = `θ=${dataY.toFixed(2)}°`;
+    } else if (at === 'ternary') {
+      if (xEl) xEl.textContent = `A=${dataX.toFixed(1)}%`;
+      if (yEl) yEl.textContent = `B=${dataY.toFixed(1)}%`;
+    } else if (at === 'date-x') {
+      if (xEl) xEl.textContent = isNaN(dataX) ? '—' : new Date(dataX).toLocaleString();
+      if (yEl) yEl.textContent = dataY.toPrecision(5);
+    } else if (at === 'circular') {
+      if (xEl) xEl.textContent = `t=${dataX.toPrecision(4)}`;
+      if (yEl) yEl.textContent = `v=${dataY.toPrecision(4)}`;
+    } else {
+      if (xEl) xEl.textContent = dataX.toPrecision(5);
+      if (yEl) yEl.textContent = dataY.toPrecision(5);
+    }
   } else {
     if (xEl) xEl.textContent = mouseImgX.toFixed(1) + 'px';
     if (yEl) yEl.textContent = mouseImgY.toFixed(1) + 'px';
