@@ -4,6 +4,7 @@
  */
 import { getState, setState } from '../state/store';
 import { render } from './canvas-engine';
+import { pushHistory } from './history';
 import type { Roi } from '../state/types';
 
 export function getRoi(): Roi | null {
@@ -11,11 +12,13 @@ export function getRoi(): Roi | null {
 }
 
 export function setRoi(roi: Roi | null): void {
+  pushHistory('Set RoI');
   setState(d => { d.canvas.roi = roi; });
   render();
 }
 
 export function clearRoi(): void {
+  pushHistory('Clear RoI');
   setState(d => { d.canvas.roi = null; d.activeTool = 'pointer'; });
   render();
 }

@@ -20,6 +20,31 @@
   --font-mono:  'Geist Mono', ui-monospace, monospace;
 }
 
+/* Dark mode overrides */
+body.dark {
+  --color-bg:        #0d0d0d;
+  --color-surface:   #161616;
+  --color-surface-2: #1c1c1e;
+  --color-surface-3: #222224;
+  --color-border:    #2a2a2a;
+  --color-border-2:  #3a3a3a;
+  --color-accent-dim:#1e3a5f;
+  --color-text:      #e5e5e5;
+  --color-text-2:    #a1a1aa;
+  --color-muted:     #52525b;
+  --color-faint:     #1c1c1e;
+}
+
+/* Responsive: sidebar toggle for small screens */
+@media (max-width: 1199px) {
+  #right-panel { overflow: hidden; transition: width 0.2s ease; }
+  #right-panel:not(.open) { width: 0 !important; }
+  #right-panel.open { position: absolute; right: 0; z-index: 50; height: 100%; box-shadow: -4px 0 20px rgba(0,0,0,0.15); }
+}
+@media (max-width: 767px) {
+  #left-panel { display: none !important; }
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body {

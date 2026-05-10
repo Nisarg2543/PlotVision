@@ -13,6 +13,7 @@ import type { BarDetectorSettings } from '../modules/bar-detector';
 import type { ScatterDetectorSettings } from '../modules/scatter-detector';
 import { startPie, resetPie, undoLastBoundary, commitPieSectors, computeSectors, getPieStep, getPieBoundaryCount, setPieTotalValue, getPieTotalValue } from '../modules/pie-detector';
 import { startTemplateSelect, resetTemplate, runTemplateMatch, hasTemplate, getTemplateStep } from '../modules/template-match';
+import { getStrips, startDefiningStrip, updateStripYRange, removeStrip, clearStrips, traceAllStrips, isDefiningStrip } from '../modules/strip-chart';
 import { startScaleBar, resetScaleBar, commitScaleBar, getScaleBarStep, isScaleBarSet, getScaleBarUnit, getPixelsPerUnit } from '../modules/scale-bar';
 import { clearRoi } from '../modules/roi';
 import { detectChartType, getChartTypeLabel } from '../modules/auto-detect';
@@ -726,6 +727,23 @@ function renderDataTab(el: HTMLElement): void {
     el.appendChild(filtSec);
   }
 
+  // Dataset statistics
+  const activeDs2 = state.datasets.find(d => d.id === state.activeDatasetId);
+  if (activeDs2 && activeDs2.points.length >= 2) {
+    const xs = activeDs2.points.map(p => p.dataX);
+    const ys = activeDs2.points.map(p => p.dataY);
+    const minX = Math.min(...xs), maxX = Math.max(...xs);
+    const minY = Math.min(...ys), maxY = Math.max(...ys);
+    const meanY = ys.reduce((a, b) => a + b, 0) / ys.length;
+    const statSec = makeSec('Statistics');
+    const sb2 = makeSecBody(statSec);
+    const row = makeDiv('');
+    row.style.cssText = 'font-size:11px;font-family:var(--font-mono);color:var(--color-text-2);line-height:1.8;';
+    row.textContent = `N: ${activeDs2.points.length}  ·  X: [${minX.toPrecision(4)} – ${maxX.toPrecision(4)}]  ·  Y: [${minY.toPrecision(4)} – ${maxY.toPrecision(4)}]  ·  mean Y: ${meanY.toPrecision(4)}`;
+    sb2.appendChild(row);
+    el.appendChild(statSec);
+  }
+
   // Inline preview chart at the bottom of Data tab
   const hasPoints = state.datasets.some(d => d.visible && d.points.length > 0);
   if (hasPoints) {
@@ -870,8 +888,9 @@ function renderTraceTab(el: HTMLElement): void {
     { id: 'curve',   label: 'Line / Curve',   hint: 'Traces continuous curves and lines' },
     { id: 'bar',     label: 'Bar Chart',       hint: 'Detects vertical or horizontal bars' },
     { id: 'scatter', label: 'Scatter Points',  hint: 'Finds discrete point markers' },
-    { id: 'pie',      label: 'Pie Chart',         hint: 'Click-based angle digitizer for pie/donut charts' },
-    { id: 'template', label: 'Template Match',    hint: 'Drag to capture a marker, then find all similar instances' },
+    { id: 'pie',         label: 'Pie Chart',      hint: 'Click-based angle digitizer for pie/donut charts' },
+    { id: 'template',   label: 'Template Match', hint: 'Drag to capture a marker, then find all similar instances' },
+    { id: 'strip-chart', label: 'Strip Chart',   hint: 'Multi-panel ECG/oscilloscope strips with shared X axis' },
   ];
   const modeRow = makeDiv(''); modeRow.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
   modes.forEach(m => {
@@ -894,6 +913,12 @@ function renderTraceTab(el: HTMLElement): void {
   // Template mode: show dedicated UI
   if (traceExtractionMode === 'template') {
     renderTemplateWizard(el, lastResult, (r) => { lastResult = r; });
+    return;
+  }
+
+  // Strip chart mode: show dedicated UI
+  if (traceExtractionMode === 'strip-chart') {
+    renderStripWizard(el);
     return;
   }
 
@@ -1112,6 +1137,90 @@ function renderTraceTab(el: HTMLElement): void {
   }
 
   el.appendChild(actSec);
+}
+
+// ── Strip Chart Wizard ─────────────────────────────────────────
+
+function renderStripWizard(el: HTMLElement): void {
+  const strips = getStrips();
+  const defining = isDefiningStrip();
+
+  // Define strip section
+  const defSec = makeSec('Define Strips');
+  const db = makeSecBody(defSec);
+
+  if (defining) {
+    const hint = makeDiv('calib-hint');
+    hint.textContent = 'Click the canvas to place the top edge, then bottom edge of the strip…';
+    db.appendChild(hint);
+  } else {
+    const nameInp = document.createElement('input');
+    nameInp.className = 'pv-input'; nameInp.type = 'text'; nameInp.placeholder = 'Strip name (e.g. Channel 1)';
+    nameInp.style.cssText = 'margin-bottom:6px;width:100%;';
+    db.appendChild(nameInp);
+
+    const palette = ['#22d3ee','#f59e0b','#34d399','#f87171','#a78bfa','#fb923c','#60a5fa','#e879f9'];
+    const color = palette[strips.length % palette.length];
+
+    const addBtn = makeBtn('+ Define Strip', 'btn btn-primary btn-sm');
+    addBtn.addEventListener('click', () => {
+      const name = nameInp.value.trim() || `Strip ${strips.length + 1}`;
+      startDefiningStrip(name, color);
+      initSidebarDebounced();
+    });
+    db.appendChild(addBtn);
+  }
+  el.appendChild(defSec);
+
+  // Strip list
+  if (strips.length > 0) {
+    const listSec = makeSec(`Strips (${strips.length})`);
+    const lb = makeSecBody(listSec);
+
+    strips.forEach(s => {
+      const row = makeDiv('');
+      row.style.cssText = 'border:1px solid var(--color-border);border-radius:6px;padding:8px;margin-bottom:6px;';
+
+      const header = makeRow('between');
+      const nameSpan = makeSpan(s.name, 'font-size:12px;font-weight:600;');
+      const dot = document.createElement('span');
+      dot.style.cssText = `display:inline-block;width:10px;height:10px;border-radius:50%;background:${s.color};margin-right:6px;`;
+      header.appendChild(dot); header.appendChild(nameSpan);
+      const delBtn = makeIconBtn('×', 'Remove strip'); delBtn.classList.add('danger');
+      delBtn.addEventListener('click', () => { removeStrip(s.id); initSidebarDebounced(); });
+      header.appendChild(delBtn);
+      row.appendChild(header);
+
+      const yRow = makeRow('start'); yRow.style.cssText = 'gap:6px;margin-top:6px;';
+      const yMinInp = document.createElement('input'); yMinInp.className = 'pv-input'; yMinInp.type = 'number';
+      yMinInp.placeholder = 'Y min'; yMinInp.value = String(s.yMinData); yMinInp.style.flex = '1';
+      const yMaxInp = document.createElement('input'); yMaxInp.className = 'pv-input'; yMaxInp.type = 'number';
+      yMaxInp.placeholder = 'Y max'; yMaxInp.value = String(s.yMaxData); yMaxInp.style.flex = '1';
+      const setBtn = makeBtn('Set Y', 'btn btn-ghost btn-sm');
+      setBtn.addEventListener('click', () => {
+        const mn = parseFloat(yMinInp.value), mx = parseFloat(yMaxInp.value);
+        if (!isNaN(mn) && !isNaN(mx)) updateStripYRange(s.id, mn, mx);
+      });
+      yRow.appendChild(yMinInp); yRow.appendChild(yMaxInp); yRow.appendChild(setBtn);
+      row.appendChild(yRow);
+      lb.appendChild(row);
+    });
+
+    const actRow = makeRow('start'); actRow.style.cssText = 'gap:6px;margin-top:4px;';
+    const traceBtn = makeBtn('Trace All Strips', 'btn btn-primary btn-sm');
+    traceBtn.addEventListener('click', () => void traceAllStrips());
+    const clearBtn = makeBtn('Clear All', 'btn btn-danger btn-sm');
+    clearBtn.addEventListener('click', () => { clearStrips(); initSidebarDebounced(); });
+    actRow.appendChild(traceBtn); actRow.appendChild(clearBtn);
+    lb.appendChild(actRow);
+
+    el.appendChild(listSec);
+  } else {
+    const hint = makeDiv('');
+    hint.style.cssText = 'font-size:11px;color:var(--color-muted);padding:8px 12px;';
+    hint.textContent = 'No strips defined yet. Enter a name and click "Define Strip", then click the top and bottom edges of each panel on the canvas.';
+    el.appendChild(hint);
+  }
 }
 
 // ── Template Match Wizard ──────────────────────────────────────

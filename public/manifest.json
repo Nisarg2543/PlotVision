@@ -1,0 +1,14 @@
+{
+  "name": "PlotVision",
+  "short_name": "PlotVision",
+  "description": "Free browser-based graph digitizer. Extract data from any chart image.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f0f0f0",
+  "theme_color": "#2563eb",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ],
+  "categories": ["productivity", "utilities"],
+  "lang": "en"
+}

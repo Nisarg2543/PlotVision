@@ -7,13 +7,15 @@ const MAX_HISTORY = 100;
 export function pushHistory(description: string): void {
   const state = getState();
   const snapshot = {
-    datasets: structuredClone(state.datasets),
-    calibration: structuredClone(state.calibration),
+    datasets:     structuredClone(state.datasets),
+    calibration:  structuredClone(state.calibration),
+    imageFilters: structuredClone(state.canvas.imageFilters),
+    roi:          structuredClone(state.canvas.roi),
+    exportOptions: structuredClone(state.exportOptions),
   };
   const entry: HistoryEntry = { id: uid(), timestamp: Date.now(), description, snapshot };
 
   setState(draft => {
-    // Truncate redo future
     draft.history = draft.history.slice(0, draft.historyIndex + 1);
     draft.history.push(entry);
     if (draft.history.length > MAX_HISTORY) draft.history.shift();
@@ -28,16 +30,17 @@ export function undo(): void {
   setState(draft => {
     const target = history[historyIndex - 1];
     if (target) {
-      draft.datasets = structuredClone(target.snapshot.datasets);
-      draft.calibration = structuredClone(target.snapshot.calibration);
+      draft.datasets           = structuredClone(target.snapshot.datasets);
+      draft.calibration        = structuredClone(target.snapshot.calibration);
+      draft.canvas.imageFilters = structuredClone(target.snapshot.imageFilters);
+      draft.canvas.roi         = structuredClone(target.snapshot.roi);
+      draft.exportOptions      = structuredClone(target.snapshot.exportOptions);
     } else {
       draft.datasets = [];
       draft.calibration = structuredClone(history[0]?.snapshot.calibration ?? draft.calibration);
-      // Restore to pre-first-action by clearing datasets
       draft.datasets = [];
     }
     draft.historyIndex--;
-    // Ensure activeDatasetId is still valid
     if (draft.activeDatasetId && !draft.datasets.find(d => d.id === draft.activeDatasetId)) {
       draft.activeDatasetId = draft.datasets[0]?.id ?? null;
     }
@@ -50,8 +53,11 @@ export function redo(): void {
 
   setState(draft => {
     const target = history[historyIndex + 1];
-    draft.datasets = structuredClone(target.snapshot.datasets);
-    draft.calibration = structuredClone(target.snapshot.calibration);
+    draft.datasets           = structuredClone(target.snapshot.datasets);
+    draft.calibration        = structuredClone(target.snapshot.calibration);
+    draft.canvas.imageFilters = structuredClone(target.snapshot.imageFilters);
+    draft.canvas.roi         = structuredClone(target.snapshot.roi);
+    draft.exportOptions      = structuredClone(target.snapshot.exportOptions);
     draft.historyIndex++;
     if (draft.activeDatasetId && !draft.datasets.find(d => d.id === draft.activeDatasetId)) {
       draft.activeDatasetId = draft.datasets[0]?.id ?? null;

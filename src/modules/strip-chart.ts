@@ -31,6 +31,7 @@ export function isDefiningStrip(): boolean { return definingStrip !== null; }
 
 export function startDefiningStrip(name: string, color: string): void {
   definingStrip = { id: uid(), name, color };
+  (window as unknown as Record<string, unknown>).__stripDefining = true;
   showToast('Click the TOP edge of the strip on the canvas', 'info', 3000);
 }
 
@@ -58,6 +59,7 @@ export function handleStripClick(imgX: number, imgY: number): void {
     strips.push(definingStrip as Strip);
     const stripName = (definingStrip as Strip).name;
     definingStrip = null;
+    (window as unknown as Record<string, unknown>).__stripDefining = false;
     showToast(`Strip "${stripName}" defined — set Y range in strip list`, 'success');
   }
 }

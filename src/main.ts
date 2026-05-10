@@ -13,11 +13,18 @@ import { handlePieClick } from './modules/pie-detector';
 import { handleScaleBarClick } from './modules/scale-bar';
 import { handlePerspectiveClick } from './modules/perspective';
 import { handleTemplateDragStart, handleTemplateDragMove, handleTemplateDragEnd } from './modules/template-match';
+import { handleStripClick } from './modules/strip-chart';
 import { destroyImageLoader } from './modules/image-loader';
 import { destroyAutosave } from './modules/project';
 import { destroyCanvas } from './modules/canvas-engine';
-import { setupAutosave } from './modules/project';
+import { setupAutosave, getAutosaveData, clearAutosave, loadProject } from './modules/project';
 import { initOnboarding } from './ui/onboarding';
+import { showToast } from './utils/toast';
+
+// Apply persisted theme before first render
+if (localStorage.getItem('plotvision-theme') === 'dark') {
+  document.body.classList.add('dark');
+}
 
 function main(): void {
   const canvasContainer = document.getElementById('canvas-container');
@@ -46,6 +53,7 @@ function main(): void {
     onTemplateDragStart:  handleTemplateDragStart,
     onTemplateDragMove:   handleTemplateDragMove,
     onTemplateDragEnd:    handleTemplateDragEnd,
+    onStripClick:         handleStripClick,
   });
 
   // Image loading (drag-drop, paste, file picker, PDF)
@@ -68,6 +76,44 @@ function main(): void {
 
   // First-time onboarding tour
   initOnboarding();
+
+  // Autosave recovery banner
+  const autosaveData = getAutosaveData();
+  if (autosaveData) {
+    try {
+      const parsed = JSON.parse(autosaveData);
+      const age = Date.now() - (parsed.savedAt ?? 0);
+      if (age < 24 * 60 * 60 * 1000) { // within 24h
+        const banner = document.getElementById('recovery-banner');
+        if (banner) {
+          banner.style.display = 'flex';
+          document.getElementById('recovery-restore')?.addEventListener('click', () => {
+            banner.style.display = 'none';
+            const blob = new Blob([autosaveData], { type: 'application/json' });
+            const file = new File([blob], 'autosave.pvz', { type: 'application/json' });
+            void loadProject(file);
+            clearAutosave();
+          });
+          document.getElementById('recovery-dismiss')?.addEventListener('click', () => {
+            banner.style.display = 'none';
+            clearAutosave();
+          });
+        }
+      }
+    } catch { /* malformed autosave, ignore */ }
+  }
+
+  // Global unhandled error handler
+  window.addEventListener('unhandledrejection', () => {
+    showToast('Something went wrong — if the issue persists, reload the page', 'error', 6000);
+  });
+
+  // Register service worker for PWA / offline support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
+      // SW registration failure is non-fatal
+    });
+  }
 
   // Cleanup on page unload (prevents memory leaks)
   window.addEventListener('beforeunload', () => {

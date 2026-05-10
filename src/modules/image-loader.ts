@@ -3,6 +3,7 @@ import { setImageBitmap, fitToWindow, render } from './canvas-engine';
 import { readFileAsArrayBuffer } from '../utils/file';
 import { showToast } from '../utils/toast';
 import { detectChartType, getChartTypeLabel } from './auto-detect';
+import { showLoading, hideLoading } from '../ui/loading-overlay';
 
 // PDF document stored here (not cloneable)
 let pdfDoc: any = null;
@@ -96,6 +97,7 @@ async function loadFile(file: File | Blob): Promise<void> {
     return;
   }
 
+  showLoading('Loading image…');
   try {
     if (type === 'application/pdf' || name.toLowerCase().endsWith('.pdf')) {
       const buffer = await readFileAsArrayBuffer(file);
@@ -106,6 +108,8 @@ async function loadFile(file: File | Blob): Promise<void> {
     }
   } catch (err) {
     showToast(`Failed to load file: ${(err as Error).message}`, 'error');
+  } finally {
+    hideLoading();
   }
 }
 

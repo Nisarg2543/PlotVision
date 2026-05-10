@@ -6,6 +6,7 @@
 import { setState } from '../state/store';
 import { render, getImageBitmap, setImageBitmap } from './canvas-engine';
 import { showToast } from '../utils/toast';
+import { showLoading, hideLoading } from '../ui/loading-overlay';
 
 export type PerspectiveStep = 'idle' | 'placing';
 
@@ -54,6 +55,7 @@ function applyPerspectiveWarp(): void {
   const corners = persState.corners;
   if (corners.length !== 4) return;
 
+  showLoading('Applying perspective correction…');
   showToast('Applying perspective correction…', 'info', 2500);
 
   const src: [number, number][] = corners.map(c => [c.x, c.y]);
@@ -126,6 +128,7 @@ function applyPerspectiveWarp(): void {
   dstCtx.putImageData(dstImg, 0, 0);
 
   createImageBitmap(dstCanvas).then(newBitmap => {
+    hideLoading();
     setImageBitmap(newBitmap);
     setState(d => {
       d.image.width = dstW;

@@ -4,6 +4,7 @@
  * Provides convertPixelDistance() for real-world measurement reporting.
  */
 import { setState } from '../state/store';
+import { pushHistory } from './history';
 import { distance } from '../utils/math';
 import { render } from './canvas-engine';
 import { showToast } from '../utils/toast';
@@ -68,6 +69,7 @@ export function commitScaleBar(realValue: number, unit: string): void {
     showToast('Endpoints too close together', 'warning');
     return;
   }
+  pushHistory('Set scale bar');
   sbState.realValue = realValue;
   sbState.unit = unit;
   sbState.pixelsPerUnit = px / realValue;

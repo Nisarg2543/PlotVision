@@ -67,6 +67,9 @@ export interface HistoryEntry {
   snapshot: {
     datasets: Dataset[];
     calibration: CalibrationState;
+    imageFilters: ImageFilters;
+    roi: Roi | null;
+    exportOptions: ExportOptions;
   };
 }
 
@@ -98,7 +101,7 @@ export interface ExportOptions {
   dateFmt: string;  // e.g. 'yyyy-mm-dd HH:ii:ss'
 }
 
-export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie' | 'template';
+export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie' | 'template' | 'strip-chart';
 
 export interface CalibrationState {
   axisType: AxisType;

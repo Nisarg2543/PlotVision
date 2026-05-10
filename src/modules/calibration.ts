@@ -151,8 +151,8 @@ export function handleCalibClick(imgX: number, imgY: number): void {
 
 export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr: string): void {
   const value = parseFloat(valueStr);
-  if (isNaN(value)) {
-    showToast('Please enter a valid number', 'warning');
+  if (isNaN(value) || !isFinite(value)) {
+    showToast('Please enter a valid finite number', 'warning');
     return;
   }
 

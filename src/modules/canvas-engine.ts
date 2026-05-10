@@ -113,6 +113,7 @@ let onPerspectiveClick: ((imgX: number, imgY: number) => void) | null = null;
 let onTemplateDragStart: ((imgX: number, imgY: number) => void) | null = null;
 let onTemplateDragMove: ((imgX: number, imgY: number) => void) | null = null;
 let onTemplateDragEnd: ((imgX: number, imgY: number) => void) | null = null;
+let onStripClick: ((imgX: number, imgY: number) => void) | null = null;
 
 export function setCanvasCallbacks(cbs: {
   onCalibClick?: (x: number, y: number) => void;
@@ -126,6 +127,7 @@ export function setCanvasCallbacks(cbs: {
   onTemplateDragStart?: (x: number, y: number) => void;
   onTemplateDragMove?: (x: number, y: number) => void;
   onTemplateDragEnd?: (x: number, y: number) => void;
+  onStripClick?: (x: number, y: number) => void;
 }): void {
   if (cbs.onCalibClick) onCalibClick = cbs.onCalibClick;
   if (cbs.onDigitizerClick) onDigitizerClick = cbs.onDigitizerClick;
@@ -138,6 +140,7 @@ export function setCanvasCallbacks(cbs: {
   if (cbs.onTemplateDragStart) onTemplateDragStart = cbs.onTemplateDragStart;
   if (cbs.onTemplateDragMove) onTemplateDragMove = cbs.onTemplateDragMove;
   if (cbs.onTemplateDragEnd) onTemplateDragEnd = cbs.onTemplateDragEnd;
+  if (cbs.onStripClick) onStripClick = cbs.onStripClick;
 }
 
 export function setImageBitmap(bmp: ImageBitmap): void {
@@ -712,7 +715,15 @@ function updateStatusBar(state: ReturnType<typeof getState>): void {
     const active = state.datasets.find(d => d.id === state.activeDatasetId);
     ptsEl.textContent = active ? `${active.points.length} pts` : '0 pts';
   }
-  if (toolEl) toolEl.textContent = state.activeTool;
+  if (toolEl) {
+    const TOOL_LABELS: Record<string, string> = {
+      'pointer': 'Pointer', 'calibrate': 'Calibrate', 'add-point': 'Add Point',
+      'auto-trace': 'Auto-Trace', 'measure': 'Measure', 'eraser': 'Eraser',
+      'pan': 'Pan', 'pie': 'Pie Mode', 'scale-bar': 'Scale Bar',
+      'perspective': 'Perspective', 'roi': 'Region of Interest', 'template': 'Template',
+    };
+    toolEl.textContent = TOOL_LABELS[state.activeTool] ?? state.activeTool;
+  }
   if (zoomEl) zoomEl.textContent = `${Math.round(state.canvas.zoom * 100)}%`;
   if (fileEl) fileEl.textContent = state.image.filename || '';
 }
@@ -791,6 +802,12 @@ function handleMouseDown(e: MouseEvent): void {
     const dataHit = hitTestDataPoint(x, y);
     if (dataHit && state.activeTool === 'pointer') {
       isDraggingPoint = dataHit.point.id;
+      return;
+    }
+
+    // Strip-defining mode intercepts any click when active
+    if (onStripClick && (window as any).__stripDefining) {
+      onStripClick(imgX, imgY);
       return;
     }
 
