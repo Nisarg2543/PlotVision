@@ -57,7 +57,8 @@ export function detectBars(settings: BarDetectorSettings): BarDetectorResult | n
     pixels = offscreen.getContext('2d')!.getImageData(0, 0, W, H).data;
   }
 
-  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance);
+  const roi = state.canvas.roi;
+  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance, roi);
 
   const transform = state.calibration.transform!;
   const axisType = state.calibration.axisType;

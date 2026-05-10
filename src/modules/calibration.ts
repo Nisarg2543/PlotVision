@@ -38,11 +38,22 @@ let polarRefPx = 0, polarRefPy = 0;
 let ternaryAPx = 0, ternaryAPy = 0;
 let ternaryBPx = 0, ternaryBPy = 0;
 
+// Bar Chart calibration scratch state (2-point Y calibration)
+let barY1Px = 0, barY1Py = 0;
+let barY2Px = 0, barY2Py = 0;
+
+// Circular Chart Recorder scratch state
+let circCenterPx = 0, circCenterPy = 0;
+let circRInnerPx = 0, circRInnerPy = 0;
+let circT1 = { px: 0, py: 0, val: 0 };
+
 export function startCalibration(): void {
   const { axisType } = getState().calibration;
   let firstStep: CalibrationStep = 'place-x1';
-  if (axisType === 'polar')   firstStep = 'polar-place-center';
+  if (axisType === 'polar' || axisType === 'log-polar') firstStep = 'polar-place-center';
   if (axisType === 'ternary') firstStep = 'ternary-place-a';
+  if (axisType === 'bar-chart') firstStep = 'bar-place-y1';
+  if (axisType === 'circular') firstStep = 'circ-place-center';
 
   setState(draft => {
     draft.calibration.step = firstStep;
@@ -96,6 +107,35 @@ export function handleCalibClick(imgX: number, imgY: number): void {
       d.activeTool = 'pointer';
     });
     showToast('Ternary calibration complete!', 'success');
+    return;
+  }
+
+  // Bar Chart calibration clicks (2-point Y only)
+  if (step === 'bar-place-y1') {
+    barY1Px = imgX; barY1Py = imgY;
+    setState(d => { d.calibration.step = 'bar-await-y1-value'; });
+    return;
+  }
+  if (step === 'bar-place-y2') {
+    barY2Px = imgX; barY2Py = imgY;
+    setState(d => { d.calibration.step = 'bar-await-y2-value'; });
+    return;
+  }
+
+  // Circular Chart Recorder calibration clicks
+  if (step === 'circ-place-center') {
+    circCenterPx = imgX; circCenterPy = imgY;
+    setState(d => { d.calibration.step = 'circ-place-r-ref'; });
+    return;
+  }
+  if (step === 'circ-place-r-ref') {
+    circRInnerPx = imgX; circRInnerPy = imgY;
+    setState(d => { d.calibration.step = 'circ-await-r-values'; });
+    return;
+  }
+  if (step === 'circ-place-t-ref') {
+    circT1.px = imgX; circT1.py = imgY;
+    setState(d => { d.calibration.step = 'circ-await-t-values'; });
     return;
   }
 
@@ -205,6 +245,61 @@ function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null 
   };
 }
 
+export function handleBarChartValueConfirm(which: 'y1' | 'y2', valueStr: string): void {
+  const value = parseFloat(valueStr);
+  if (isNaN(value)) { showToast('Enter a valid number', 'warning'); return; }
+  if (which === 'y1') {
+    setState(d => {
+      d.calibration.points = d.calibration.points.filter(p => p.role !== 'y1');
+      d.calibration.points.push({ id: uid(), role: 'y1', pixelX: barY1Px, pixelY: barY1Py, dataX: null, dataY: value });
+      d.calibration.step = 'bar-place-y2';
+    });
+  } else {
+    // Build a "bar-chart" transform using the Y axis only; X axis mapped to pixel X (category mode)
+    const transform: CoordinateTransform = {
+      axisType: 'bar-chart',
+      x1px: 0, x1py: 0, x1Data: 0,
+      x2px: 1, x2py: 0, x2Data: 1,   // X: 1 pixel = 1 category unit (overridden at digitize time)
+      y1px: barY1Px, y1py: barY1Py, y1Data: getState().calibration.points.find(p => p.role === 'y1')?.dataY ?? 0,
+      y2px: barY2Px, y2py: barY2Py, y2Data: value,
+    };
+    setState(d => {
+      d.calibration.transform = transform;
+      d.calibration.isComplete = true;
+      d.calibration.step = 'complete';
+      d.activeTool = 'pointer';
+    });
+    showToast('Bar chart calibration complete — click bars to digitize values', 'success');
+  }
+}
+
+export function handleCircularRValuesConfirm(innerVal: number, _outerVal: number): void {
+  setState(d => {
+    d.calibration.points.push({ id: uid(), role: 'y1', pixelX: circRInnerPx, pixelY: circRInnerPy, dataX: null, dataY: innerVal });
+    d.calibration.step = 'circ-place-t-ref';
+  });
+  showToast(`Value range set. Now click a reference point for time.`, 'info');
+}
+
+export function handleCircularTValuesConfirm(t1Val: number, t2Val: number, t2Px: number, t2Py: number, clockwise: boolean): void {
+  circT1.val = t1Val;
+  const innerVal = getState().calibration.points.find(p => p.role === 'y1')?.dataY ?? 0;
+  const transform: CoordinateTransform = {
+    axisType: 'circular',
+    x1px: circCenterPx, x1py: circCenterPy, x1Data: 0,         // center
+    x2px: circRInnerPx, x2py: circRInnerPy, x2Data: innerVal,  // inner radius value
+    y1px: circT1.px,    y1py: circT1.py,    y1Data: t1Val,     // time ref 1
+    y2px: t2Px,         y2py: t2Py,         y2Data: t2Val * (clockwise ? -1 : 1), // encode CW in sign
+  };
+  setState(d => {
+    d.calibration.transform = transform;
+    d.calibration.isComplete = true;
+    d.calibration.step = 'complete';
+    d.activeTool = 'pointer';
+  });
+  showToast('Circular chart calibration complete!', 'success');
+}
+
 export function handlePolarRConfirm(rValue: number): void {
   if (isNaN(rValue) || rValue <= 0) {
     showToast('Enter a positive radius value', 'warning');
@@ -221,8 +316,9 @@ export function handlePolarRConfirm(rValue: number): void {
     polarRefPx - polarCenterPx
   ) * (180 / Math.PI);
 
+  const { axisType: currentAxisType } = getState().calibration;
   const transform: CoordinateTransform = {
-    axisType: 'polar',
+    axisType: (currentAxisType === 'log-polar' ? 'log-polar' : 'polar') as import('../state/types').AxisType,
     x1px: polarCenterPx, x1py: polarCenterPy, x1Data: rValue,
     x2px: polarRefPx,    x2py: polarRefPy,    x2Data: 0,
     y1px: 0, y1py: 0, y1Data: angleOffsetDeg,

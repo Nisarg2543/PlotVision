@@ -58,7 +58,8 @@ export function detectScatterPoints(settings: ScatterDetectorSettings): ScatterD
     pixels = offscreen.getContext('2d')!.getImageData(0, 0, W, H).data;
   }
 
-  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance);
+  const roi = state.canvas.roi;
+  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance, roi);
 
   // Connected-component labeling via BFS flood fill
   const labels = new Int32Array(W * H).fill(-1);

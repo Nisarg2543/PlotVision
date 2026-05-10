@@ -1,7 +1,7 @@
 import { getState, setState, subscribe } from '../state/store';
 import { canvasToImage, imageToCanvas, clamp, linearDataToPixel, linearPixelToData, niceGridInterval, distance } from '../utils/math';
 import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
-import { applyThreshold, applySharpen, applyAutoContrast, applyDenoise } from './image-filters';
+import { applyThreshold, applySharpen, applyAutoContrast, applyDenoise, applyGridRemoval } from './image-filters';
 import { showToast } from '../utils/toast';
 import { drawMeasureOverlay, handleMeasureClick, isMeasureActive } from './measure';
 import { drawStripOverlays, getStrips } from './strip-chart';
@@ -44,6 +44,7 @@ function buildProcessedImageData(): ImageData {
   const d = imgData.data;
 
   // Apply pixel-level filters in order
+  if (f.gridRemoval)  applyGridRemoval(d, W, H);
   if (f.sharpen)      applySharpen(d, W, H);
   if (f.denoise)      applyDenoise(d, W, H);
   if (f.autoContrast) applyAutoContrast(d);
@@ -63,7 +64,9 @@ interface ScaleBarMod { getScaleBarOverlay: () => ScaleBarOverlay | null; isScal
 // Typed interface for perspective overlay bridge
 interface PerspectiveOverlay { step: string; corners: { x: number; y: number }[]; }
 interface PerspectiveMod { getPerspectiveOverlay: () => PerspectiveOverlay | null; }
-declare global { interface Window { __autoTraceMod: AutoTraceMod | null; __pieMod: PieMod | null; __scaleBarMod: ScaleBarMod | null; __perspectiveMod: PerspectiveMod | null; } }
+interface TemplateOverlay { step: string; x1: number; y1: number; x2: number; y2: number; hasTemplate: boolean; }
+interface TemplateMod { getTemplateOverlay: () => TemplateOverlay | null; }
+declare global { interface Window { __autoTraceMod: AutoTraceMod | null; __pieMod: PieMod | null; __scaleBarMod: ScaleBarMod | null; __perspectiveMod: PerspectiveMod | null; __templateMod: TemplateMod | null; } }
 
 // Internal interaction state
 let isPanning = false;
@@ -76,6 +79,10 @@ let mouseImgX = 0, mouseImgY = 0;
 let mouseCanvasX = 0, mouseCanvasY = 0;
 let rafPending = false;
 let deletePopoverTarget: { datasetId: string; pointId: string } | null = null;
+
+// RoI drag state
+let isDrawingRoi = false;
+let roiStartImgX = 0, roiStartImgY = 0;
 
 // Touch interaction state
 let touchStartCanvasX = 0, touchStartCanvasY = 0;
@@ -102,6 +109,9 @@ let onDeletePoint: ((datasetId: string, pointId: string) => void) | null = null;
 let onPieClick: ((imgX: number, imgY: number) => void) | null = null;
 let onScaleBarClick: ((imgX: number, imgY: number) => void) | null = null;
 let onPerspectiveClick: ((imgX: number, imgY: number) => void) | null = null;
+let onTemplateDragStart: ((imgX: number, imgY: number) => void) | null = null;
+let onTemplateDragMove: ((imgX: number, imgY: number) => void) | null = null;
+let onTemplateDragEnd: ((imgX: number, imgY: number) => void) | null = null;
 
 export function setCanvasCallbacks(cbs: {
   onCalibClick?: (x: number, y: number) => void;
@@ -112,6 +122,9 @@ export function setCanvasCallbacks(cbs: {
   onPieClick?: (x: number, y: number) => void;
   onScaleBarClick?: (x: number, y: number) => void;
   onPerspectiveClick?: (x: number, y: number) => void;
+  onTemplateDragStart?: (x: number, y: number) => void;
+  onTemplateDragMove?: (x: number, y: number) => void;
+  onTemplateDragEnd?: (x: number, y: number) => void;
 }): void {
   if (cbs.onCalibClick) onCalibClick = cbs.onCalibClick;
   if (cbs.onDigitizerClick) onDigitizerClick = cbs.onDigitizerClick;
@@ -121,6 +134,9 @@ export function setCanvasCallbacks(cbs: {
   if (cbs.onPieClick) onPieClick = cbs.onPieClick;
   if (cbs.onScaleBarClick) onScaleBarClick = cbs.onScaleBarClick;
   if (cbs.onPerspectiveClick) onPerspectiveClick = cbs.onPerspectiveClick;
+  if (cbs.onTemplateDragStart) onTemplateDragStart = cbs.onTemplateDragStart;
+  if (cbs.onTemplateDragMove) onTemplateDragMove = cbs.onTemplateDragMove;
+  if (cbs.onTemplateDragEnd) onTemplateDragEnd = cbs.onTemplateDragEnd;
 }
 
 export function setImageBitmap(bmp: ImageBitmap): void {
@@ -234,6 +250,12 @@ function renderFrame(): void {
   // Pie chart extraction overlay
   drawPieOverlay(zoom, panX, panY);
 
+  // RoI overlay
+  drawRoiOverlay(zoom, panX, panY);
+
+  // Template match overlay
+  drawTemplateOverlay(zoom, panX, panY);
+
   // Scale bar overlay
   drawScaleBarOverlay(zoom, panX, panY);
 
@@ -333,6 +355,61 @@ function drawPieOverlay(zoom: number, panX: number, panY: number): void {
       });
     }
   }
+}
+
+function drawTemplateOverlay(zoom: number, panX: number, panY: number): void {
+  const mod = window.__templateMod;
+  if (!mod) return;
+  const overlay = mod.getTemplateOverlay();
+  if (!overlay) return;
+  const { x1, y1, x2, y2, hasTemplate } = overlay;
+  const { canvasX: cx1, canvasY: cy1 } = imageToCanvas(x1, y1, zoom, panX, panY);
+  const { canvasX: cx2, canvasY: cy2 } = imageToCanvas(x2, y2, zoom, panX, panY);
+  const rx = Math.min(cx1, cx2), ry = Math.min(cy1, cy2);
+  const rw = Math.abs(cx2 - cx1), rh = Math.abs(cy2 - cy1);
+  ctx.strokeStyle = hasTemplate ? '#f59e0b' : '#a78bfa';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([5, 3]);
+  ctx.strokeRect(rx, ry, rw, rh);
+  ctx.setLineDash([]);
+  ctx.fillStyle = hasTemplate ? 'rgba(245,158,11,0.08)' : 'rgba(167,139,250,0.08)';
+  ctx.fillRect(rx, ry, rw, rh);
+  ctx.font = '11px Geist Mono, monospace';
+  ctx.fillStyle = hasTemplate ? '#f59e0b' : '#a78bfa';
+  ctx.fillText(hasTemplate ? 'Template ✓' : 'Selecting…', rx + 4, ry + 14);
+}
+
+function drawRoiOverlay(zoom: number, panX: number, panY: number): void {
+  const roi = getState().canvas.roi;
+  if (!roi) return;
+  const { canvasX: cx1, canvasY: cy1 } = imageToCanvas(roi.x1, roi.y1, zoom, panX, panY);
+  const { canvasX: cx2, canvasY: cy2 } = imageToCanvas(roi.x2, roi.y2, zoom, panX, panY);
+  const x = Math.min(cx1, cx2), y = Math.min(cy1, cy2);
+  const w = Math.abs(cx2 - cx1), h = Math.abs(cy2 - cy1);
+
+  // Dim everything outside
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.35)';
+  const cw = mainCanvas.clientWidth, ch = mainCanvas.clientHeight;
+  ctx.fillRect(0, 0, cw, y);
+  ctx.fillRect(0, y + h, cw, ch - y - h);
+  ctx.fillRect(0, y, x, h);
+  ctx.fillRect(x + w, y, cw - x - w, h);
+  ctx.restore();
+
+  ctx.strokeStyle = '#22d3ee';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 3]);
+  ctx.strokeRect(x, y, w, h);
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = 'rgba(34,211,238,0.08)';
+  ctx.fillRect(x, y, w, h);
+
+  // Label
+  ctx.font = '11px Geist Mono, monospace';
+  ctx.fillStyle = '#22d3ee';
+  ctx.fillText('RoI', x + 4, y + 14);
 }
 
 function drawScaleBarOverlay(zoom: number, panX: number, panY: number): void {
@@ -720,6 +797,12 @@ function handleMouseDown(e: MouseEvent): void {
       onScaleBarClick(imgX, imgY);
     } else if (state.activeTool === 'perspective' && onPerspectiveClick) {
       onPerspectiveClick(imgX, imgY);
+    } else if (state.activeTool === 'roi') {
+      isDrawingRoi = true;
+      roiStartImgX = imgX; roiStartImgY = imgY;
+      setState(d => { d.canvas.roi = { x1: imgX, y1: imgY, x2: imgX, y2: imgY }; });
+    } else if (state.activeTool === 'template' && onTemplateDragStart) {
+      onTemplateDragStart(imgX, imgY);
     }
   }
 }
@@ -740,6 +823,17 @@ function handleMouseMove(e: MouseEvent): void {
       draft.canvas.panX = panStartOffsetX + (x - panStartX);
       draft.canvas.panY = panStartOffsetY + (y - panStartY);
     });
+    return;
+  }
+
+  if (isDrawingRoi) {
+    setState(d => { d.canvas.roi = { x1: roiStartImgX, y1: roiStartImgY, x2: imgX, y2: imgY }; });
+    return;
+  }
+
+  if (getState().activeTool === 'template' && onTemplateDragMove) {
+    onTemplateDragMove(imgX, imgY);
+    render();
     return;
   }
 
@@ -790,6 +884,13 @@ function handleMouseUp(_e: MouseEvent): void {
       const pt = ds.points.find(p => p.id === isDraggingPoint);
       if (pt) { onPointDragEnd(ds.id, pt.id, pt.pixelX, pt.pixelY); break; }
     }
+  }
+  if (isDrawingRoi) {
+    isDrawingRoi = false;
+    setState(d => { d.activeTool = 'pointer'; });
+  }
+  if (getState().activeTool === 'template' && onTemplateDragEnd) {
+    onTemplateDragEnd(mouseImgX, mouseImgY);
   }
   isPanning = false;
   isDraggingPoint = null;
@@ -1021,6 +1122,12 @@ function getCursorForTool(tool: string): string {
     case 'add-point': return 'crosshair';
     case 'calibrate': return 'crosshair';
     case 'eraser': return 'cell';
+    case 'roi': return 'crosshair';
+    case 'measure': return 'crosshair';
+    case 'pie': return 'crosshair';
+    case 'scale-bar': return 'crosshair';
+    case 'perspective': return 'crosshair';
+    case 'template': return 'crosshair';
     default: return 'default';
   }
 }

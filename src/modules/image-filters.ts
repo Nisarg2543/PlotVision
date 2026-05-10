@@ -61,6 +61,55 @@ export function applyAutoContrast(data: Uint8ClampedArray): void {
   }
 }
 
+/**
+ * Grid removal — detects near-horizontal and near-vertical lines (grid lines)
+ * by checking if >85% of a row/column pixels share the same brightness,
+ * then replaces them with local neighbour averages.
+ */
+export function applyGridRemoval(data: Uint8ClampedArray, width: number, height: number, uniformThresh = 18): void {
+  const orig = new Uint8ClampedArray(data);
+
+  const isHGrid = new Uint8Array(height);
+  for (let y = 0; y < height; y++) {
+    let baseR = orig[y * width * 4], baseG = orig[y * width * 4 + 1], baseB = orig[y * width * 4 + 2];
+    let same = 0;
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (Math.abs(orig[i]-baseR) <= uniformThresh && Math.abs(orig[i+1]-baseG) <= uniformThresh && Math.abs(orig[i+2]-baseB) <= uniformThresh) {
+        same++;
+      } else { baseR = orig[i]; baseG = orig[i+1]; baseB = orig[i+2]; }
+    }
+    if (same / width > 0.85) isHGrid[y] = 1;
+  }
+
+  const isVGrid = new Uint8Array(width);
+  for (let x = 0; x < width; x++) {
+    let baseR = orig[x * 4], baseG = orig[x * 4 + 1], baseB = orig[x * 4 + 2];
+    let same = 0;
+    for (let y = 0; y < height; y++) {
+      const i = (y * width + x) * 4;
+      if (Math.abs(orig[i]-baseR) <= uniformThresh && Math.abs(orig[i+1]-baseG) <= uniformThresh && Math.abs(orig[i+2]-baseB) <= uniformThresh) {
+        same++;
+      } else { baseR = orig[i]; baseG = orig[i+1]; baseB = orig[i+2]; }
+    }
+    if (same / height > 0.85) isVGrid[x] = 1;
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (!isHGrid[y] && !isVGrid[x]) continue;
+      let r = 0, g = 0, b = 0, cnt = 0;
+      for (let ny = y - 1; ny >= Math.max(0, y - 5); ny--) {
+        if (!isHGrid[ny]) { const ni=(ny*width+x)*4; r+=orig[ni]; g+=orig[ni+1]; b+=orig[ni+2]; cnt++; break; }
+      }
+      for (let ny = y + 1; ny <= Math.min(height-1, y+5); ny++) {
+        if (!isHGrid[ny]) { const ni=(ny*width+x)*4; r+=orig[ni]; g+=orig[ni+1]; b+=orig[ni+2]; cnt++; break; }
+      }
+      if (cnt > 0) { const i=(y*width+x)*4; data[i]=r/cnt; data[i+1]=g/cnt; data[i+2]=b/cnt; }
+    }
+  }
+}
+
 /** 3×3 median filter — replaces each pixel with the median of its 3×3 neighbourhood. */
 export function applyDenoise(data: Uint8ClampedArray, width: number, height: number): void {
   const orig = new Uint8ClampedArray(data);

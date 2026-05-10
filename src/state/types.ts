@@ -1,6 +1,6 @@
-export type Tool = 'pointer' | 'calibrate' | 'add-point' | 'auto-trace' | 'measure' | 'eraser' | 'pan' | 'pie' | 'scale-bar' | 'perspective';
+export type Tool = 'pointer' | 'calibrate' | 'add-point' | 'auto-trace' | 'measure' | 'eraser' | 'pan' | 'pie' | 'scale-bar' | 'perspective' | 'roi' | 'template';
 
-export type AxisType = 'xy-linear' | 'xy-log' | 'polar' | 'ternary' | 'date-x' | 'map';
+export type AxisType = 'xy-linear' | 'xy-log' | 'polar' | 'log-polar' | 'ternary' | 'date-x' | 'map' | 'bar-chart' | 'circular';
 
 export type CalibrationStep =
   | 'idle'
@@ -9,10 +9,14 @@ export type CalibrationStep =
   | 'place-y1' | 'await-y1-value'
   | 'place-y2' | 'await-y2-value'
   | 'complete'
-  // Polar wizard
+  // Polar / Log-Polar wizard
   | 'polar-place-center' | 'polar-place-ref' | 'polar-await-r'
   // Ternary wizard
-  | 'ternary-place-a' | 'ternary-place-b' | 'ternary-place-c';
+  | 'ternary-place-a' | 'ternary-place-b' | 'ternary-place-c'
+  // Bar Chart wizard (2-point Y calibration)
+  | 'bar-place-y1' | 'bar-await-y1-value' | 'bar-place-y2' | 'bar-await-y2-value'
+  // Circular Chart Recorder wizard
+  | 'circ-place-center' | 'circ-place-r-ref' | 'circ-await-r-values' | 'circ-place-t-ref' | 'circ-await-t-values';
 
 export type CalibPointRole = 'x1' | 'x2' | 'y1' | 'y2';
 
@@ -70,9 +74,25 @@ export interface ImageFilters {
   threshold: number | null;  // null = off, 0–255 when enabled
   autoContrast: boolean;
   denoise: boolean;
+  gridRemoval: boolean;
 }
 
-export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie';
+export interface Roi {
+  x1: number; y1: number;
+  x2: number; y2: number;
+}
+
+export type ExportPrecision = 'auto' | 'fixed' | 'sigfigs' | 'scientific';
+export type ExportSort = 'none' | 'x-asc' | 'x-desc' | 'y-asc' | 'y-desc' | 'nearest-neighbor';
+
+export interface ExportOptions {
+  precision: ExportPrecision;
+  digits: number;
+  sort: ExportSort;
+  dateFmt: string;  // e.g. 'yyyy-mm-dd HH:ii:ss'
+}
+
+export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie' | 'template';
 
 export interface CalibrationState {
   axisType: AxisType;
@@ -96,6 +116,7 @@ export interface AppState {
     panX: number;
     panY: number;
     imageFilters: ImageFilters;
+    roi: Roi | null;
   };
   calibration: CalibrationState;
   datasets: Dataset[];
@@ -106,4 +127,5 @@ export interface AppState {
   ui: {
     previewMode: 'scatter' | 'line' | 'bar';
   };
+  exportOptions: ExportOptions;
 }

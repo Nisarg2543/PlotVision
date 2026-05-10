@@ -3,7 +3,7 @@ import { fitToWindow, zoomBy } from '../modules/canvas-engine';
 import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
 import { saveProject, openProjectPicker } from '../modules/project';
-import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX } from '../modules/export';
+import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX, exportPlotly, exportProjectTar } from '../modules/export';
 import { openBatchPicker, isBatchActive, markCurrentDone, skipCurrent, getQueue, getCurrentIndex } from '../modules/batch';
 
 const I = {
@@ -164,6 +164,8 @@ function openExportModal(): void {
     { label: 'JSON',                 sub: 'Structured with calibration metadata',            action: () => exportJSON() },
     { label: 'Copy to Clipboard',    sub: 'Tab-separated, paste into Excel/Sheets',          action: () => exportClipboard() },
     { label: 'LaTeX table',          sub: '\\tabular{cc} environment',                      action: () => exportLaTeX() },
+    { label: 'Plotly HTML',          sub: 'Interactive chart — open in any browser',        action: () => exportPlotly() },
+    { label: 'Project (.tar)',       sub: 'Image + calibration + data bundled',             action: () => void exportProjectTar() },
   ];
 
   for (const row of rows) {

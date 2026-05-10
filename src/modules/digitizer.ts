@@ -77,7 +77,7 @@ export function nudgePoint(direction: string, deltaPx: number): void {
 }
 
 function pixelToData(imgX: number, imgY: number, t: import('../state/types').CoordinateTransform, axisType: string) {
-  if (axisType === 'polar') {
+  if (axisType === 'polar' || axisType === 'log-polar') {
     const polar = {
       centerPx: t.x1px, centerPy: t.x1py,
       refPx: t.x2px,    refPy: t.x2py,
@@ -85,8 +85,13 @@ function pixelToData(imgX: number, imgY: number, t: import('../state/types').Coo
       angleOffsetDeg: t.y1Data,
       clockwise: t.y2Data > 0,
     };
-    const { r, thetaDeg } = polarPixelToData(imgX, imgY, polar);
+    const { r, thetaDeg } = polarPixelToData(imgX, imgY, polar, axisType === 'log-polar');
     return { dataX: r, dataY: thetaDeg };
+  }
+  if (axisType === 'bar-chart') {
+    // Y only; X is categorical (dataX = pixel X, user edits label in sidebar)
+    const dataY = t.y1Data + (imgY - t.y1py) * (t.y2Data - t.y1Data) / (t.y2py - t.y1py);
+    return { dataX: imgX, dataY };
   }
   if (axisType === 'ternary') {
     const ternary = {

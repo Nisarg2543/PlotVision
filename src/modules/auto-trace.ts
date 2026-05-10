@@ -1,8 +1,8 @@
 import { getState, setState } from '../state/store';
 import { getImageBitmap, render, getProcessedImageData } from './canvas-engine';
 import { rgbToLab, deltaE, hexToRgb } from '../utils/color';
-import { linearPixelToData, uid } from '../utils/math';
-import { isLogAxisType, getLogFlags, logPixelToData } from './axis-types';
+import { linearPixelToData, linearDataToPixel, uid } from '../utils/math';
+import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
 import type { DataPoint } from '../state/types';
@@ -60,6 +60,7 @@ export function buildColorMask(
   tolerance: number,
   bgHex: string | null = null,
   bgTolerance = 20,
+  roi?: { x1: number; y1: number; x2: number; y2: number } | null,
 ): Uint8Array {
   const { r: tr, g: tg, b: tb } = hexToRgb(targetHex);
   const targetLab = rgbToLab(tr, tg, tb);
@@ -73,12 +74,22 @@ export function buildColorMask(
     bgThresh = bgTolerance * 0.5;
   }
 
+  // Normalise RoI bounds
+  const rx1 = roi ? Math.round(Math.min(roi.x1, roi.x2)) : 0;
+  const ry1 = roi ? Math.round(Math.min(roi.y1, roi.y2)) : 0;
+  const rx2 = roi ? Math.round(Math.max(roi.x1, roi.x2)) : W - 1;
+  const ry2 = roi ? Math.round(Math.max(roi.y1, roi.y2)) : H - 1;
+
   const mask = new Uint8Array(W * H);
-  for (let i = 0; i < W * H; i++) {
-    const r = pixels[i * 4], g = pixels[i * 4 + 1], b = pixels[i * 4 + 2];
-    const lab = rgbToLab(r, g, b);
-    if (bgLab && deltaE(bgLab, lab) < bgThresh) { mask[i] = 0; continue; }
-    mask[i] = deltaE(targetLab, lab) < threshold ? 1 : 0;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      if (roi && (x < rx1 || x > rx2 || y < ry1 || y > ry2)) continue;
+      const i = y * W + x;
+      const r = pixels[i * 4], g = pixels[i * 4 + 1], b = pixels[i * 4 + 2];
+      const lab = rgbToLab(r, g, b);
+      if (bgLab && deltaE(bgLab, lab) < bgThresh) { mask[i] = 0; continue; }
+      mask[i] = deltaE(targetLab, lab) < threshold ? 1 : 0;
+    }
   }
   return mask;
 }
@@ -132,7 +143,8 @@ export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]
 
   const { pixels, W, H } = imgPx;
 
-  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance);
+  const roi = getState().canvas.roi;
+  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance, roi);
 
   // For each column, find median Y of foreground pixels
   const columnYs: (number | null)[] = new Array(W).fill(null);
@@ -186,6 +198,176 @@ export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]
   }
 
   return { points: rawPoints, previewData: preview, width: W, height: H };
+}
+
+/**
+ * X Step with Interpolation — samples at fixed X pixel intervals, applies cubic
+ * spline interpolation to fill gaps, and outputs one point per interval.
+ */
+export function runXStepTrace(
+  settings: AutoTraceSettings,
+  xStepPx: number
+): { points: DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null {
+  const imgPx = getImagePixels();
+  if (!imgPx) return null;
+  const state = getState();
+  if (!state.calibration.isComplete || !state.calibration.transform) {
+    showToast('Complete calibration first', 'warning'); return null;
+  }
+  const { pixels, W, H } = imgPx;
+  const roi = getState().canvas.roi;
+  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance, roi);
+
+  // Collect (x, medianY) samples at each xStep interval
+  const sampledXs: number[] = [];
+  const sampledYs: number[] = [];
+  for (let x = 0; x < W; x += Math.max(1, Math.round(xStepPx))) {
+    const fgYs: number[] = [];
+    for (let y = 0; y < H; y++) { if (mask[y * W + x]) fgYs.push(y); }
+    if (fgYs.length > 0) {
+      fgYs.sort((a, b) => a - b);
+      sampledXs.push(x);
+      sampledYs.push(fgYs[Math.floor(fgYs.length / 2)]);
+    }
+  }
+
+  if (sampledXs.length < 2) { showToast('Not enough points found — try adjusting tolerance', 'warning'); return null; }
+
+  // Cubic spline interpolation
+  const splineYs = cubicSplineInterpolate(sampledXs, sampledYs, W);
+
+  const transform = state.calibration.transform!;
+  const axisType = state.calibration.axisType;
+  const useLog = isLogAxisType(axisType);
+  const { logX, logY } = useLog ? getLogFlags(axisType) : { logX: false, logY: false };
+
+  const points: DataPoint[] = [];
+  for (let x = 0; x < W; x += Math.max(1, Math.round(xStepPx))) {
+    const y = splineYs[x];
+    if (y === null || isNaN(y)) continue;
+    const { dataX, dataY } = useLog ? logPixelToData(x, y, transform, logX, logY) : linearPixelToData(x, y, transform);
+    points.push({ id: uid(), pixelX: x, pixelY: y, dataX, dataY });
+  }
+
+  const preview = new Uint8ClampedArray(W * H * 4);
+  for (let i = 0; i < W * H; i++) {
+    if (mask[i]) { preview[i*4]=37; preview[i*4+1]=99; preview[i*4+2]=235; preview[i*4+3]=140; }
+  }
+  for (let x = 0; x < W; x++) {
+    const y = splineYs[x];
+    if (y !== null && !isNaN(y)) {
+      const yi = Math.round(y);
+      for (let dy = -1; dy <= 1; dy++) {
+        const py = yi + dy;
+        if (py >= 0 && py < H) {
+          const i = py * W + x;
+          preview[i*4]=255; preview[i*4+1]=255; preview[i*4+2]=255; preview[i*4+3]=220;
+        }
+      }
+    }
+  }
+  return { points, previewData: preview, width: W, height: H };
+}
+
+/**
+ * Custom Independents — user provides comma-separated data X values.
+ * At each corresponding pixel X, finds the vertical centroid of foreground pixels.
+ */
+export function runCustomIndependents(
+  settings: AutoTraceSettings,
+  xDataValues: number[]
+): { points: DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null {
+  const imgPx = getImagePixels();
+  if (!imgPx) return null;
+  const state = getState();
+  if (!state.calibration.isComplete || !state.calibration.transform) {
+    showToast('Complete calibration first', 'warning'); return null;
+  }
+  const { pixels, W, H } = imgPx;
+  const transform = state.calibration.transform!;
+  const axisType = state.calibration.axisType;
+  const useLog = isLogAxisType(axisType);
+  const { logX, logY } = useLog ? getLogFlags(axisType) : { logX: false, logY: false };
+
+  const roi = state.canvas.roi;
+  const mask = buildColorMask(pixels, W, H, settings.targetColor, settings.tolerance, settings.bgColor, settings.bgTolerance, roi);
+  const points: DataPoint[] = [];
+
+  for (const xData of xDataValues) {
+    let pixX: number;
+    if (useLog) {
+      const { pixelX } = logDataToPixel(xData, 0, transform, logX, logY);
+      pixX = Math.round(pixelX);
+    } else {
+      const { pixelX } = linearDataToPixel(xData, 0, transform);
+      pixX = Math.round(pixelX);
+    }
+    if (pixX < 0 || pixX >= W) continue;
+
+    // Search ±2 pixel columns
+    const fgYs: number[] = [];
+    for (let dx = -2; dx <= 2; dx++) {
+      const cx = pixX + dx;
+      if (cx < 0 || cx >= W) continue;
+      for (let y = 0; y < H; y++) { if (mask[y * W + cx]) fgYs.push(y); }
+    }
+    if (fgYs.length === 0) continue;
+    fgYs.sort((a, b) => a - b);
+    const yPix = fgYs[Math.floor(fgYs.length / 2)];
+    const { dataX, dataY } = useLog ? logPixelToData(pixX, yPix, transform, logX, logY) : linearPixelToData(pixX, yPix, transform);
+    points.push({ id: uid(), pixelX: pixX, pixelY: yPix, dataX, dataY });
+  }
+
+  const preview = new Uint8ClampedArray(W * H * 4);
+  for (const pt of points) {
+    for (let dy = -3; dy <= 3; dy++) {
+      const py = pt.pixelY + dy;
+      if (py >= 0 && py < H) { const i = (py * W + pt.pixelX) * 4; preview[i]=255; preview[i+1]=200; preview[i+2]=0; preview[i+3]=230; }
+    }
+  }
+  return { points, previewData: preview, width: W, height: H };
+}
+
+/** Cubic spline interpolation — fills in Y values at every integer X from 0 to maxX */
+function cubicSplineInterpolate(xs: number[], ys: number[], maxX: number): (number | null)[] {
+  const n = xs.length;
+  if (n < 2) return new Array(maxX).fill(null);
+
+  // Natural cubic spline via Thomas algorithm
+  const h = xs.slice(1).map((x, i) => x - xs[i]);
+  const alpha = ys.slice(1).map((y, i) => i === 0 ? 0 : 3 * ((ys[i+1] - y) / h[i] - (y - ys[i-1]) / h[i-1]));
+
+  const l = new Array(n).fill(1);
+  const mu = new Array(n).fill(0);
+  const z = new Array(n).fill(0);
+
+  for (let i = 1; i < n - 1; i++) {
+    l[i] = 2 * (xs[i+1] - xs[i-1]) - h[i-1] * mu[i-1];
+    if (l[i] === 0) continue;
+    mu[i] = h[i] / l[i];
+    z[i] = (alpha[i] - h[i-1] * z[i-1]) / l[i];
+  }
+
+  const c = new Array(n).fill(0);
+  const b = new Array(n).fill(0);
+  const d = new Array(n).fill(0);
+
+  for (let j = n - 2; j >= 0; j--) {
+    c[j] = z[j] - mu[j] * c[j+1];
+    b[j] = (ys[j+1] - ys[j]) / h[j] - h[j] * (c[j+1] + 2*c[j]) / 3;
+    d[j] = (c[j+1] - c[j]) / (3 * h[j]);
+  }
+
+  const result: (number | null)[] = new Array(maxX).fill(null);
+  for (let x = 0; x < maxX; x++) {
+    // Find segment
+    let seg = n - 2;
+    for (let i = 0; i < n - 1; i++) { if (x >= xs[i] && x <= xs[i+1]) { seg = i; break; } }
+    if (x < xs[0] || x > xs[n-1]) continue;
+    const dx = x - xs[seg];
+    result[x] = ys[seg] + b[seg]*dx + c[seg]*dx*dx + d[seg]*dx*dx*dx;
+  }
+  return result;
 }
 
 function smoothCurve(ys: (number | null)[], mode: AutoTraceSettings['smoothing']): (number | null)[] {

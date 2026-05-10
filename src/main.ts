@@ -12,6 +12,7 @@ import { handleDigitizerClick, deletePoint, pushHistoryOnDragEnd } from './modul
 import { handlePieClick } from './modules/pie-detector';
 import { handleScaleBarClick } from './modules/scale-bar';
 import { handlePerspectiveClick } from './modules/perspective';
+import { handleTemplateDragStart, handleTemplateDragMove, handleTemplateDragEnd } from './modules/template-match';
 import { setupAutosave } from './modules/project';
 import { initOnboarding } from './ui/onboarding';
 
@@ -37,8 +38,11 @@ function main(): void {
     onDeletePoint:  (datasetId, pointId) => deletePoint(datasetId, pointId),
     onPointDragEnd: () => pushHistoryOnDragEnd(),
     onPieClick:          handlePieClick,
-    onScaleBarClick:     handleScaleBarClick,
-    onPerspectiveClick:  handlePerspectiveClick,
+    onScaleBarClick:      handleScaleBarClick,
+    onPerspectiveClick:   handlePerspectiveClick,
+    onTemplateDragStart:  handleTemplateDragStart,
+    onTemplateDragMove:   handleTemplateDragMove,
+    onTemplateDragEnd:    handleTemplateDragEnd,
   });
 
   // Image loading (drag-drop, paste, file picker, PDF)

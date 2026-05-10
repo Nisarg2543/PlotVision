@@ -3,16 +3,18 @@ import {
   addDataset, removeDataset, setActiveDataset, toggleDatasetVisibility,
   renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints, clearDatasetPoints,
 } from '../modules/datasets';
-import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration, handlePolarRConfirm } from '../modules/calibration';
+import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration, handlePolarRConfirm, handleBarChartValueConfirm, handleCircularRValuesConfirm, handleCircularTValuesConfirm } from '../modules/calibration';
 import { updatePointData, deletePoint as deleteDataPoint } from '../modules/digitizer';
 import { goToPage } from '../modules/image-loader';
-import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
+import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, runXStepTrace, runCustomIndependents, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
 import { defaultBarSettings, detectBars, detectAllBarLayers } from '../modules/bar-detector';
 import { defaultScatterSettings, detectScatterPoints } from '../modules/scatter-detector';
 import type { BarDetectorSettings } from '../modules/bar-detector';
 import type { ScatterDetectorSettings } from '../modules/scatter-detector';
 import { startPie, resetPie, undoLastBoundary, commitPieSectors, computeSectors, getPieStep, getPieBoundaryCount, setPieTotalValue, getPieTotalValue } from '../modules/pie-detector';
+import { startTemplateSelect, resetTemplate, runTemplateMatch, hasTemplate, getTemplateStep } from '../modules/template-match';
 import { startScaleBar, resetScaleBar, commitScaleBar, getScaleBarStep, isScaleBarSet, getScaleBarUnit, getPixelsPerUnit } from '../modules/scale-bar';
+import { clearRoi } from '../modules/roi';
 import { detectChartType, getChartTypeLabel } from '../modules/auto-detect';
 import { getImageBitmap } from '../modules/canvas-engine';
 import { startPerspective, resetPerspective, undoLastCorner, getPerspectiveStep, getPerspectiveCorners } from '../modules/perspective';
@@ -118,8 +120,10 @@ function renderCalibTab(el: HTMLElement): void {
     const axisSel = makeSelect([
       ['xy-linear','XY Linear'], ['xy-log-x','Semi-log (log X)'],
       ['xy-log-y','Semi-log (log Y)'], ['xy-log-xy','Log-log'],
-      ['polar','Polar (R-θ)'], ['ternary','Ternary'],
+      ['polar','Polar (R-θ)'], ['log-polar','Log-Polar (log R-θ)'],
+      ['ternary','Ternary'], ['bar-chart','Bar Chart (categorical)'],
       ['date-x','Date/Time X'], ['map','Map / Pixels only'],
+      ['circular','Circular Chart Recorder'],
     ], cal.axisType);
     axisSel.addEventListener('change', () => setState(d => { d.calibration.axisType = axisSel.value as any; }));
     sb.appendChild(axisSel);
@@ -137,7 +141,7 @@ function renderCalibTab(el: HTMLElement): void {
     const wizEl = document.createElement('div');
     wizEl.className = 'ps';
 
-    if (cal.axisType === 'polar') {
+    if (cal.axisType === 'polar' || cal.axisType === 'log-polar') {
       // Polar 3-step wizard
       const steps = ['polar-place-center', 'polar-place-ref', 'polar-await-r'];
       const idx = steps.indexOf(cal.step);
@@ -169,6 +173,64 @@ function renderCalibTab(el: HTMLElement): void {
         confirmBtn.addEventListener('click', () => handlePolarRConfirm(parseFloat(inp.value)));
         wizEl.appendChild(confirmBtn);
         setTimeout(() => inp.focus(), 50);
+      }
+
+    } else if (cal.axisType === 'bar-chart') {
+      // Bar chart: 2-step Y calibration
+      const steps = ['bar-place-y1', 'bar-await-y1-value', 'bar-place-y2', 'bar-await-y2-value'];
+      const idx = steps.indexOf(cal.step);
+      const pips = makeDiv('calib-progress');
+      steps.forEach((_, i) => { const pip = makeDiv('calib-pip'); if (i < idx) pip.classList.add('done'); if (i === idx) pip.classList.add('active'); pips.appendChild(pip); });
+      wizEl.appendChild(pips);
+      const lbl = makeDiv('calib-action-label'); lbl.textContent = `Step ${idx + 1} of 4`; wizEl.appendChild(lbl);
+      const hint = makeDiv('calib-hint'); hint.textContent = getWizardPrompt() || (idx < 2 ? 'Click a known Y value on the axis' : 'Click a second known Y value'); wizEl.appendChild(hint);
+      const which = cal.step === 'bar-await-y1-value' ? 'y1' : cal.step === 'bar-await-y2-value' ? 'y2' : null;
+      if (which) {
+        const inp = document.createElement('input'); inp.className = 'pv-input'; inp.type = 'number'; inp.placeholder = 'Enter Y value';
+        inp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') handleBarChartValueConfirm(which as 'y1'|'y2', inp.value); });
+        wizEl.appendChild(inp);
+        const btn = makeBtn('Confirm →', 'btn btn-primary'); btn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
+        btn.addEventListener('click', () => handleBarChartValueConfirm(which as 'y1'|'y2', inp.value));
+        wizEl.appendChild(btn);
+        setTimeout(() => inp.focus(), 50);
+      }
+
+    } else if (cal.axisType === 'circular') {
+      // Circular chart recorder: multi-step wizard
+      const steps = ['circ-place-center','circ-place-r-ref','circ-await-r-values','circ-place-t-ref','circ-await-t-values'];
+      const stepLabels = ['Click chart center','Click inner radius point','Enter inner/outer values','Click time reference point','Enter time values + 2nd point'];
+      const idx = steps.indexOf(cal.step);
+      const pips = makeDiv('calib-progress');
+      steps.forEach((_, i) => { const pip = makeDiv('calib-pip'); if (i < idx) pip.classList.add('done'); if (i === idx) pip.classList.add('active'); pips.appendChild(pip); });
+      wizEl.appendChild(pips);
+      const lbl = makeDiv('calib-action-label'); lbl.textContent = `Step ${idx + 1} of 5`; wizEl.appendChild(lbl);
+      const hint = makeDiv('calib-hint'); hint.textContent = stepLabels[idx] ?? ''; wizEl.appendChild(hint);
+
+      if (cal.step === 'circ-await-r-values') {
+        const innerInp = document.createElement('input'); innerInp.className = 'pv-input'; innerInp.type = 'number'; innerInp.placeholder = 'Inner radius value';
+        innerInp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
+        const outerInp = document.createElement('input'); outerInp.className = 'pv-input'; outerInp.type = 'number'; outerInp.placeholder = 'Outer radius value';
+        outerInp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
+        wizEl.appendChild(innerInp); wizEl.appendChild(outerInp);
+        const btn = makeBtn('Confirm →', 'btn btn-primary'); btn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
+        btn.addEventListener('click', () => handleCircularRValuesConfirm(parseFloat(innerInp.value), parseFloat(outerInp.value)));
+        wizEl.appendChild(btn); setTimeout(() => innerInp.focus(), 50);
+      } else if (cal.step === 'circ-await-t-values') {
+        const t1Inp = document.createElement('input'); t1Inp.className = 'pv-input'; t1Inp.type = 'number'; t1Inp.placeholder = 'Time at ref point';
+        t1Inp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
+        const t2Inp = document.createElement('input'); t2Inp.className = 'pv-input'; t2Inp.type = 'number'; t2Inp.placeholder = 'Time at 2nd ref point';
+        t2Inp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
+        const t2xInp = document.createElement('input'); t2xInp.className = 'pv-input'; t2xInp.type = 'number'; t2xInp.placeholder = '2nd ref point X (px)';
+        t2xInp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
+        const t2yInp = document.createElement('input'); t2yInp.className = 'pv-input'; t2yInp.type = 'number'; t2yInp.placeholder = '2nd ref point Y (px)';
+        t2yInp.style.cssText = 'margin:0 12px 4px;width:calc(100% - 24px);';
+        wizEl.appendChild(t1Inp); wizEl.appendChild(t2Inp); wizEl.appendChild(t2xInp); wizEl.appendChild(t2yInp);
+        const cwCheck = makeCheckbox('Clockwise', false, () => {});
+        wizEl.appendChild(cwCheck);
+        const btn = makeBtn('Confirm →', 'btn btn-primary'); btn.style.cssText = 'margin:8px 12px 12px;width:calc(100% - 24px);';
+        btn.addEventListener('click', () => handleCircularTValuesConfirm(parseFloat(t1Inp.value), parseFloat(t2Inp.value), parseFloat(t2xInp.value), parseFloat(t2yInp.value), (cwCheck.querySelector('input') as HTMLInputElement)?.checked ?? false));
+        wizEl.appendChild(btn); setTimeout(() => t1Inp.focus(), 50);
       }
 
     } else if (cal.axisType === 'ternary') {
@@ -217,17 +279,30 @@ function renderCalibTab(el: HTMLElement): void {
 
       const role = STEP_TO_ROLE[cal.step];
       if (role) {
+        const isXRole = role === 'x1' || role === 'x2';
+        const isDateX = cal.axisType === 'date-x' && isXRole;
         const inp = document.createElement('input');
         inp.className = 'pv-input';
-        inp.type = 'number';
-        inp.placeholder = (role === 'x1' || role === 'x2') ? 'Enter X value' : 'Enter Y value';
         inp.style.cssText = 'margin:0 12px 6px;width:calc(100% - 24px);';
-        inp.addEventListener('keydown', e => { if (e.key === 'Enter') handleCalibValueConfirm(role, inp.value); });
+
+        if (isDateX) {
+          inp.type = 'datetime-local';
+          inp.step = '1';
+        } else {
+          inp.type = 'number';
+          inp.placeholder = isXRole ? 'Enter X value' : 'Enter Y value';
+        }
+
+        const getVal = () => isDateX
+          ? String(new Date(inp.value).getTime())
+          : inp.value;
+
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') handleCalibValueConfirm(role, getVal()); });
         wizEl.appendChild(inp);
 
         const confirmBtn = makeBtn('Confirm value →', 'btn btn-primary');
         confirmBtn.style.cssText = 'margin:0 12px 12px;width:calc(100% - 24px);';
-        confirmBtn.addEventListener('click', () => handleCalibValueConfirm(role, inp.value));
+        confirmBtn.addEventListener('click', () => handleCalibValueConfirm(role, getVal()));
         wizEl.appendChild(confirmBtn);
         setTimeout(() => inp.focus(), 50);
       }
@@ -552,6 +627,8 @@ function renderDataTab(el: HTMLElement): void {
       e => setState(d => { d.canvas.imageFilters.sharpen = (e.target as HTMLInputElement).checked; })));
     pxRow1.appendChild(makeCheckbox('Denoise', f.denoise,
       e => setState(d => { d.canvas.imageFilters.denoise = (e.target as HTMLInputElement).checked; })));
+    pxRow1.appendChild(makeCheckbox('Grid Remove', f.gridRemoval,
+      e => setState(d => { d.canvas.imageFilters.gridRemoval = (e.target as HTMLInputElement).checked; })));
     fb.appendChild(pxRow1);
 
     const pxRow2 = makeDiv(''); pxRow2.style.cssText = 'display:flex;gap:12px;';
@@ -588,7 +665,7 @@ function renderDataTab(el: HTMLElement): void {
     const resetBtn = makeBtn('Reset All Filters', 'btn btn-ghost btn-sm');
     resetBtn.style.marginTop = '6px';
     resetBtn.addEventListener('click', () => setState(d => {
-      d.canvas.imageFilters = { brightness: 100, contrast: 100, grayscale: false, invert: false, sharpen: false, threshold: null, autoContrast: false, denoise: false };
+      d.canvas.imageFilters = { brightness: 100, contrast: 100, grayscale: false, invert: false, sharpen: false, threshold: null, autoContrast: false, denoise: false, gridRemoval: false };
     }));
     fb.appendChild(resetBtn);
 
@@ -624,6 +701,43 @@ function renderDataTab(el: HTMLElement): void {
     // Render chart after DOM is attached
     requestAnimationFrame(() => updatePreview());
   }
+
+  // Export Options section
+  const expOptSec = makeSec('Export Options');
+  const eob = makeSecBody(expOptSec);
+  const expOpts = state.exportOptions;
+
+  eob.appendChild(makeLbl('Number format'));
+  const precSel = makeSelect([
+    ['auto','Auto'], ['fixed','Fixed decimals'], ['sigfigs','Significant figures'], ['scientific','Scientific notation'],
+  ], expOpts.precision);
+  precSel.addEventListener('change', () => setState(d => { d.exportOptions.precision = precSel.value as any; }));
+  eob.appendChild(precSel);
+
+  if (expOpts.precision !== 'auto') {
+    eob.appendChild(makeFilterSlider(`Digits: ${expOpts.digits}`, expOpts.digits, 1, 12,
+      v => setState(d => { d.exportOptions.digits = v; })));
+  }
+
+  eob.appendChild(makeLbl('Sort order'));
+  const sortSel = makeSelect([
+    ['none','None (original order)'], ['x-asc','X ascending'], ['x-desc','X descending'],
+    ['y-asc','Y ascending'], ['y-desc','Y descending'], ['nearest-neighbor','Nearest-Neighbor'],
+  ], expOpts.sort);
+  sortSel.addEventListener('change', () => setState(d => { d.exportOptions.sort = sortSel.value as any; }));
+  eob.appendChild(sortSel);
+
+  if (state.calibration.axisType === 'date-x') {
+    eob.appendChild(makeLbl('Date format'));
+    const fmtInp = document.createElement('input');
+    fmtInp.className = 'pv-input'; fmtInp.type = 'text';
+    fmtInp.value = expOpts.dateFmt; fmtInp.placeholder = 'yyyy-mm-dd HH:ii:ss';
+    fmtInp.style.cssText = 'margin:0 12px 6px;width:calc(100%-24px);font-size:11px;';
+    fmtInp.addEventListener('blur', () => setState(d => { d.exportOptions.dateFmt = fmtInp.value; }));
+    eob.appendChild(fmtInp);
+  }
+
+  el.appendChild(expOptSec);
 }
 
 // ── Trace ──────────────────────────────────────────────────────
@@ -631,10 +745,36 @@ function renderDataTab(el: HTMLElement): void {
 let traceExtractionMode: ExtractionMode = 'curve';
 let barSettings: BarDetectorSettings = { ...defaultBarSettings };
 let scatterSettings: ScatterDetectorSettings = { ...defaultScatterSettings };
+type CurveAlgorithm = 'column-median' | 'x-step' | 'custom-x';
+let curveAlgorithm: CurveAlgorithm = 'column-median';
+let xStepPx = 5;
+let customXStr = '';
 
 function renderTraceTab(el: HTMLElement): void {
   const ats = getAutoTraceSettings();
   let lastResult: { points: import('../state/types').DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null = null;
+
+  // Region of Interest
+  const roiState = getState().canvas.roi;
+  const roiSec = makeSec('Region of Interest');
+  const roib = makeSecBody(roiSec);
+  const roiHint = makeDiv('');
+  roiHint.style.cssText = 'font-size:11px;color:var(--color-muted);margin-bottom:6px;';
+  roiHint.textContent = roiState
+    ? `Active: (${Math.round(Math.min(roiState.x1,roiState.x2))},${Math.round(Math.min(roiState.y1,roiState.y2))}) → (${Math.round(Math.max(roiState.x1,roiState.x2))},${Math.round(Math.max(roiState.y1,roiState.y2))})`
+    : 'Draw a box to constrain all detectors to a sub-region.';
+  roib.appendChild(roiHint);
+  const roiRow = makeRow('start'); roiRow.style.gap = '6px';
+  const drawRoiBtn = makeBtn(roiState ? 'Redraw' : 'Draw RoI', 'btn btn-ghost btn-sm');
+  drawRoiBtn.addEventListener('click', () => setState(d => { d.activeTool = 'roi'; }));
+  roiRow.appendChild(drawRoiBtn);
+  if (roiState) {
+    const clearRoiBtn = makeBtn('Clear', 'btn btn-danger btn-sm');
+    clearRoiBtn.addEventListener('click', clearRoi);
+    roiRow.appendChild(clearRoiBtn);
+  }
+  roib.appendChild(roiRow);
+  el.appendChild(roiSec);
 
   // Auto-detect section
   const detectSec = makeSec('Auto-Detect Chart Type');
@@ -676,7 +816,8 @@ function renderTraceTab(el: HTMLElement): void {
     { id: 'curve',   label: 'Line / Curve',   hint: 'Traces continuous curves and lines' },
     { id: 'bar',     label: 'Bar Chart',       hint: 'Detects vertical or horizontal bars' },
     { id: 'scatter', label: 'Scatter Points',  hint: 'Finds discrete point markers' },
-    { id: 'pie',     label: 'Pie Chart',       hint: 'Click-based angle digitizer for pie/donut charts' },
+    { id: 'pie',      label: 'Pie Chart',         hint: 'Click-based angle digitizer for pie/donut charts' },
+    { id: 'template', label: 'Template Match',    hint: 'Drag to capture a marker, then find all similar instances' },
   ];
   const modeRow = makeDiv(''); modeRow.style.cssText = 'display:flex;flex-direction:column;gap:4px;';
   modes.forEach(m => {
@@ -684,6 +825,7 @@ function renderTraceTab(el: HTMLElement): void {
     btn.title = m.hint;
     btn.addEventListener('click', () => {
       if (traceExtractionMode === 'pie' && m.id !== 'pie') resetPie();
+      if (traceExtractionMode === 'template' && m.id !== 'template') resetTemplate();
       traceExtractionMode = m.id;
       lastResult = null;
       window.__autoTraceMod = null;
@@ -694,6 +836,12 @@ function renderTraceTab(el: HTMLElement): void {
   });
   mb.appendChild(modeRow);
   el.appendChild(modeSec);
+
+  // Template mode: show dedicated UI
+  if (traceExtractionMode === 'template') {
+    renderTemplateWizard(el, lastResult, (r) => { lastResult = r; });
+    return;
+  }
 
   // Pie mode: show dedicated wizard UI, skip color/bg/settings/actions
   if (traceExtractionMode === 'pie') {
@@ -764,13 +912,35 @@ function renderTraceTab(el: HTMLElement): void {
   const sb = makeSecBody(settSec);
 
   if (traceExtractionMode === 'curve') {
+    sb.appendChild(makeLbl('Algorithm'));
+    const algSel = makeSelect([
+      ['column-median','Column Median (default)'],
+      ['x-step','X Step with Interpolation'],
+      ['custom-x','Custom Independents (specify X values)'],
+    ], curveAlgorithm);
+    algSel.addEventListener('change', () => { curveAlgorithm = algSel.value as CurveAlgorithm; renderBody(sidebarBodyEl!); });
+    sb.appendChild(algSel);
+
     sb.appendChild(makeFilterSlider('Tolerance', ats.tolerance, 0, 100, v => setAutoTraceSettings({ tolerance: v })));
-    sb.appendChild(makeLbl('Smoothing'));
-    const smoothSel = makeSelect([['none','None'],['light','Light'],['heavy','Heavy']], ats.smoothing);
-    smoothSel.addEventListener('change', () => setAutoTraceSettings({ smoothing: smoothSel.value as any }));
-    sb.appendChild(smoothSel);
-    sb.appendChild(makeFilterSlider(`Interval (${ats.samplingInterval}px)`, ats.samplingInterval, 1, 20,
-      v => setAutoTraceSettings({ samplingInterval: v })));
+
+    if (curveAlgorithm === 'column-median') {
+      sb.appendChild(makeLbl('Smoothing'));
+      const smoothSel = makeSelect([['none','None'],['light','Light'],['heavy','Heavy']], ats.smoothing);
+      smoothSel.addEventListener('change', () => setAutoTraceSettings({ smoothing: smoothSel.value as any }));
+      sb.appendChild(smoothSel);
+      sb.appendChild(makeFilterSlider(`Interval (${ats.samplingInterval}px)`, ats.samplingInterval, 1, 20,
+        v => setAutoTraceSettings({ samplingInterval: v })));
+    } else if (curveAlgorithm === 'x-step') {
+      sb.appendChild(makeFilterSlider(`X Step (${xStepPx}px)`, xStepPx, 1, 50, v => { xStepPx = v; }));
+    } else {
+      sb.appendChild(makeLbl('X values (comma-separated data values)'));
+      const xInp = document.createElement('input');
+      xInp.className = 'pv-input'; xInp.type = 'text'; xInp.placeholder = '1,2,3,4,5 …';
+      xInp.value = customXStr;
+      xInp.style.cssText = 'margin:0 12px 6px;width:calc(100%-24px);font-size:11px;';
+      xInp.addEventListener('input', () => { customXStr = xInp.value; });
+      sb.appendChild(xInp);
+    }
 
   } else if (traceExtractionMode === 'bar') {
     sb.appendChild(makeFilterSlider('Tolerance', barSettings.tolerance, 0, 100,
@@ -806,7 +976,15 @@ function renderTraceTab(el: HTMLElement): void {
   previewBtn.addEventListener('click', () => {
     let result: typeof lastResult = null;
     if (traceExtractionMode === 'curve') {
-      result = runAutoTrace(getAutoTraceSettings());
+      if (curveAlgorithm === 'x-step') {
+        result = runXStepTrace(getAutoTraceSettings(), xStepPx);
+      } else if (curveAlgorithm === 'custom-x') {
+        const vals = customXStr.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
+        if (vals.length === 0) { showToast('Enter at least one X value', 'warning'); return; }
+        result = runCustomIndependents(getAutoTraceSettings(), vals);
+      } else {
+        result = runAutoTrace(getAutoTraceSettings());
+      }
     } else if (traceExtractionMode === 'bar') {
       result = detectBars(barSettings);
     } else {
@@ -880,6 +1058,75 @@ function renderTraceTab(el: HTMLElement): void {
   }
 
   el.appendChild(actSec);
+}
+
+// ── Template Match Wizard ──────────────────────────────────────
+
+function renderTemplateWizard(
+  el: HTMLElement,
+  lastResult: { points: import('../state/types').DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null,
+  setResult: (r: typeof lastResult) => void
+): void {
+  const step = getTemplateStep();
+  const gotTemplate = hasTemplate();
+
+  const sec = makeSec('Template Matching');
+  const body = makeSecBody(sec);
+
+  const hint = makeDiv('');
+  hint.style.cssText = 'font-size:11px;color:var(--color-muted);margin-bottom:8px;line-height:1.5;';
+  if (step === 'idle' && !gotTemplate) {
+    hint.textContent = 'Drag over one marker on the chart to capture a template. The algorithm will find all similar markers.';
+  } else if (step === 'selecting') {
+    hint.textContent = 'Drag over a marker on the canvas to capture it…';
+  } else {
+    hint.textContent = 'Template captured. Adjust threshold and click Find Matches.';
+  }
+  body.appendChild(hint);
+
+  const row = makeRow('start'); row.style.gap = '6px';
+
+  const captureBtn = makeBtn(gotTemplate ? 'Recapture' : 'Capture Template', 'btn btn-primary btn-sm');
+  captureBtn.addEventListener('click', startTemplateSelect);
+  row.appendChild(captureBtn);
+
+  if (gotTemplate) {
+    const resetBtn = makeBtn('Clear', 'btn btn-danger btn-sm');
+    resetBtn.addEventListener('click', () => { resetTemplate(); initSidebarDebounced(); });
+    row.appendChild(resetBtn);
+  }
+  body.appendChild(row);
+
+  if (gotTemplate) {
+    let threshold = 0.65, minSpacing = 12;
+    body.appendChild(makeFilterSlider(`Match threshold (${(threshold*100).toFixed(0)}%)`, Math.round(threshold*100), 10, 100, v => { threshold = v / 100; }));
+    body.appendChild(makeFilterSlider(`Min spacing (${minSpacing}px)`, minSpacing, 4, 80, v => { minSpacing = v; }));
+
+    const findBtn = makeBtn('Find Matches', 'btn btn-primary');
+    findBtn.style.marginTop = '6px';
+    findBtn.addEventListener('click', () => {
+      const result = runTemplateMatch(threshold, minSpacing);
+      if (result) {
+        setResult(result);
+        setPreviewData(result.previewData, result.width, result.height);
+        window.__autoTraceMod = { getPreviewData: () => ({ data: result.previewData, width: result.width, height: result.height }) };
+        canvasRender();
+        commitBtn.style.display = 'flex';
+        commitBtn.textContent = `Commit ${result.points.length} pts →`;
+      }
+    });
+    body.appendChild(findBtn);
+
+    const commitBtn = makeBtn('Commit pts →', 'btn btn-success');
+    commitBtn.style.display = lastResult ? 'flex' : 'none';
+    if (lastResult) commitBtn.textContent = `Commit ${lastResult.points.length} pts →`;
+    commitBtn.addEventListener('click', () => {
+      if (lastResult) { commitAutoTrace(lastResult.points); setResult(null); window.__autoTraceMod = null; }
+    });
+    body.appendChild(commitBtn);
+  }
+
+  el.appendChild(sec);
 }
 
 // ── Pie Wizard ─────────────────────────────────────────────────

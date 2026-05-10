@@ -71,7 +71,7 @@ export interface PolarTransform {
 }
 
 export function polarPixelToData(
-  pixelX: number, pixelY: number, t: PolarTransform
+  pixelX: number, pixelY: number, t: PolarTransform, logR = false
 ): { r: number; thetaDeg: number } {
   const dx = pixelX - t.centerPx;
   const dy = -(pixelY - t.centerPy); // flip Y (canvas Y is inverted)
@@ -79,7 +79,14 @@ export function polarPixelToData(
   const refDy = -(t.refPy - t.centerPy);
   const refPixelRadius = Math.sqrt(refDx ** 2 + refDy ** 2);
   const pixelRadius = Math.sqrt(dx ** 2 + dy ** 2);
-  const r = (pixelRadius / refPixelRadius) * t.rAtRef;
+
+  let r: number;
+  if (logR && t.rAtRef > 0) {
+    // Log-polar: r = rAtRef * 10^(log10(pixelRadius/refPixelRadius))
+    r = t.rAtRef * Math.pow(10, Math.log10(pixelRadius / refPixelRadius));
+  } else {
+    r = (pixelRadius / refPixelRadius) * t.rAtRef;
+  }
 
   let theta = Math.atan2(dy, dx) * (180 / Math.PI);
   theta = theta - t.angleOffsetDeg;
@@ -87,6 +94,46 @@ export function polarPixelToData(
   theta = ((theta % 360) + 360) % 360;
 
   return { r, thetaDeg: theta };
+}
+
+// ── Circular Chart Recorder ───────────────────────────────────────────────────
+// Chart is circular: angle encodes time, radius encodes value.
+
+export interface CircularTransform {
+  centerPx: number; centerPy: number;
+  // Two radius reference points for value scale
+  rInnerPx: number; rInnerPy: number; rInnerVal: number;
+  rOuterPx: number; rOuterPy: number; rOuterVal: number;
+  // Two angle reference points for time scale
+  tRef1Px: number; tRef1Py: number; tRef1Val: number;  // time value at this angle
+  tRef2Px: number; tRef2Py: number; tRef2Val: number;
+  clockwise: boolean;
+}
+
+export function circularPixelToData(
+  pixelX: number, pixelY: number, t: CircularTransform
+): { time: number; value: number } {
+  const dx = pixelX - t.centerPx;
+  const dy = pixelY - t.centerPy;
+  const pixelR = Math.sqrt(dx * dx + dy * dy);
+
+  // Value: linear interpolation between inner and outer radius
+  const rInnerDx = t.rInnerPx - t.centerPx, rInnerDy = t.rInnerPy - t.centerPy;
+  const rOuterDx = t.rOuterPx - t.centerPx, rOuterDy = t.rOuterPy - t.centerPy;
+  const rInnerPx = Math.sqrt(rInnerDx ** 2 + rInnerDy ** 2);
+  const rOuterPx = Math.sqrt(rOuterDx ** 2 + rOuterDy ** 2);
+  const value = t.rInnerVal + (pixelR - rInnerPx) * (t.rOuterVal - t.rInnerVal) / (rOuterPx - rInnerPx);
+
+  // Time: angle relative to reference angles
+  const angle = Math.atan2(dy, dx); // radians, -π to π
+  const ref1Angle = Math.atan2(t.tRef1Py - t.centerPy, t.tRef1Px - t.centerPx);
+  const ref2Angle = Math.atan2(t.tRef2Py - t.centerPy, t.tRef2Px - t.centerPx);
+  let normAngle = ((angle - ref1Angle) + Math.PI * 2) % (Math.PI * 2);
+  let normRef2  = ((ref2Angle - ref1Angle) + Math.PI * 2) % (Math.PI * 2);
+  if (t.clockwise) { normAngle = (Math.PI * 2 - normAngle) % (Math.PI * 2); normRef2 = (Math.PI * 2 - normRef2) % (Math.PI * 2); }
+  const time = t.tRef1Val + (normRef2 > 0 ? (normAngle / normRef2) * (t.tRef2Val - t.tRef1Val) : 0);
+
+  return { time, value };
 }
 
 // ── Ternary ───────────────────────────────────────────────────────────────────
