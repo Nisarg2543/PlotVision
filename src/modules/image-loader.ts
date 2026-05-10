@@ -9,7 +9,16 @@ let pdfDoc: any = null;
 
 declare const pdfjsLib: any;
 
+// Named handlers for cleanup
+let pasteHandler: ((e: ClipboardEvent) => void) | null = null;
+let dragoverHandler: ((e: DragEvent) => void) | null = null;
+let dragleaveHandler: ((e: DragEvent) => void) | null = null;
+let dropHandler: ((e: DragEvent) => void) | null = null;
+let loaderContainer: HTMLElement | null = null;
+
 export function initImageLoader(container: HTMLElement): void {
+  loaderContainer = container;
+
   // Set PDF.js worker source
   if (typeof pdfjsLib !== 'undefined') {
     pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -17,28 +26,31 @@ export function initImageLoader(container: HTMLElement): void {
   }
 
   // Drag-drop
-  container.addEventListener('dragover', e => {
+  dragoverHandler = (e: DragEvent) => {
     e.preventDefault();
     document.getElementById('drop-overlay')?.classList.remove('hidden');
     document.getElementById('empty-state')?.classList.add('hidden');
-  });
-  container.addEventListener('dragleave', e => {
+  };
+  dragleaveHandler = (e: DragEvent) => {
     if (!container.contains(e.relatedTarget as Node)) {
       document.getElementById('drop-overlay')?.classList.add('hidden');
       if (!getState().image.filename) {
         document.getElementById('empty-state')?.classList.remove('hidden');
       }
     }
-  });
-  container.addEventListener('drop', e => {
+  };
+  dropHandler = (e: DragEvent) => {
     e.preventDefault();
     document.getElementById('drop-overlay')?.classList.add('hidden');
     const file = e.dataTransfer?.files[0];
     if (file) loadFile(file);
-  });
+  };
+  container.addEventListener('dragover', dragoverHandler);
+  container.addEventListener('dragleave', dragleaveHandler);
+  container.addEventListener('drop', dropHandler);
 
   // Clipboard paste
-  document.addEventListener('paste', (e: ClipboardEvent) => {
+  pasteHandler = (e: ClipboardEvent) => {
     const items = Array.from(e.clipboardData?.items ?? []);
     const imgItem = items.find(i => i.type.startsWith('image/'));
     if (imgItem) {
@@ -46,11 +58,19 @@ export function initImageLoader(container: HTMLElement): void {
       const blob = imgItem.getAsFile();
       if (blob) loadFile(blob);
     }
-  });
+  };
+  document.addEventListener('paste', pasteHandler);
 
   // Empty state buttons
   document.getElementById('empty-open-btn')?.addEventListener('click', openFilePicker);
   document.getElementById('empty-demo-btn')?.addEventListener('click', () => void loadDemoChart());
+}
+
+export function destroyImageLoader(): void {
+  if (pasteHandler)    { document.removeEventListener('paste', pasteHandler);          pasteHandler = null; }
+  if (dragoverHandler && loaderContainer)  { loaderContainer.removeEventListener('dragover', dragoverHandler);   dragoverHandler = null; }
+  if (dragleaveHandler && loaderContainer) { loaderContainer.removeEventListener('dragleave', dragleaveHandler); dragleaveHandler = null; }
+  if (dropHandler && loaderContainer)      { loaderContainer.removeEventListener('drop', dropHandler);           dropHandler = null; }
 }
 
 export function openFilePicker(): void {
@@ -64,9 +84,17 @@ export function openFilePicker(): void {
   input.click();
 }
 
+const MAX_FILE_MB = 50;
+
 async function loadFile(file: File | Blob): Promise<void> {
   const name = (file as File).name ?? 'pasted-image';
   const type = file.type;
+
+  // File size guard
+  if (file.size > MAX_FILE_MB * 1024 * 1024) {
+    showToast(`File too large — max ${MAX_FILE_MB} MB (this file is ${(file.size / 1024 / 1024).toFixed(0)} MB)`, 'error', 5000);
+    return;
+  }
 
   try {
     if (type === 'application/pdf' || name.toLowerCase().endsWith('.pdf')) {

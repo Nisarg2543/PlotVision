@@ -20,6 +20,7 @@ import { getImageBitmap } from '../modules/canvas-engine';
 import { startPerspective, resetPerspective, undoLastCorner, getPerspectiveStep, getPerspectiveCorners } from '../modules/perspective';
 import { render as canvasRender } from '../modules/canvas-engine';
 import { showToast } from '../utils/toast';
+import { esc } from '../utils/sanitize';
 import type { ExtractionMode } from '../state/types';
 import { updatePreview } from '../ui/preview-panel';
 import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints } from '../modules/measure';
@@ -612,10 +613,10 @@ function renderDataTab(el: HTMLElement): void {
       const cPct = isTernary ? `<td style="color:var(--color-muted);font-size:10px;">${(100 - pt.dataX - pt.dataY).toFixed(2)}%</td>` : '';
       tr.innerHTML = `
         <td style="color:var(--color-muted)">${i + 1}</td>
-        <td ${xEditable ? 'contenteditable="true"' : ''} data-field="x" data-id="${pt.id}">${xDisplay}</td>
-        <td contenteditable="true" data-field="y" data-id="${pt.id}">${yDisplay}</td>
+        <td ${xEditable ? 'contenteditable="true"' : ''} data-field="x" data-id="${esc(pt.id)}">${esc(xDisplay)}</td>
+        <td contenteditable="true" data-field="y" data-id="${esc(pt.id)}">${esc(yDisplay)}</td>
         ${cPct}
-        <td><button class="icon-btn danger" data-delete="${pt.id}" title="Delete">×</button></td>
+        <td><button class="icon-btn danger" data-delete="${esc(pt.id)}" title="Delete">×</button></td>
       `;
       tbody.appendChild(tr);
     });
@@ -1264,7 +1265,7 @@ function renderPieWizard(el: HTMLElement): void {
       sectors.forEach(s => {
         const row = makeDiv('');
         row.style.cssText = 'display:flex;justify-content:space-between;font-size:11px;padding:2px 0;border-bottom:1px solid var(--color-faint);color:var(--color-text-2);';
-        row.innerHTML = `<span>${s.label}</span><span style="font-family:var(--font-mono);">${s.angleDeg.toFixed(1)}° &nbsp; ${s.value.toFixed(totalVal === 100 ? 1 : 4)}</span>`;
+        row.innerHTML = `<span>${esc(s.label)}</span><span style="font-family:var(--font-mono);">${s.angleDeg.toFixed(1)}° &nbsp; ${s.value.toFixed(totalVal === 100 ? 1 : 4)}</span>`;
         previewWrap.appendChild(row);
       });
       wb.appendChild(previewWrap);

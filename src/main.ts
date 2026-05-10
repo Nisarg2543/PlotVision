@@ -13,6 +13,9 @@ import { handlePieClick } from './modules/pie-detector';
 import { handleScaleBarClick } from './modules/scale-bar';
 import { handlePerspectiveClick } from './modules/perspective';
 import { handleTemplateDragStart, handleTemplateDragMove, handleTemplateDragEnd } from './modules/template-match';
+import { destroyImageLoader } from './modules/image-loader';
+import { destroyAutosave } from './modules/project';
+import { destroyCanvas } from './modules/canvas-engine';
 import { setupAutosave } from './modules/project';
 import { initOnboarding } from './ui/onboarding';
 
@@ -65,6 +68,13 @@ function main(): void {
 
   // First-time onboarding tour
   initOnboarding();
+
+  // Cleanup on page unload (prevents memory leaks)
+  window.addEventListener('beforeunload', () => {
+    destroyImageLoader();
+    destroyAutosave();
+    destroyCanvas();
+  }, { once: true });
 }
 
 main();

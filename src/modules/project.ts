@@ -164,8 +164,9 @@ export async function loadProjectTar(file: File): Promise<void> {
   }
 }
 
-// Auto-save to sessionStorage so browser refresh doesn't lose work
+// Auto-save to localStorage so data survives tab close
 const AUTOSAVE_KEY = 'plotvision-autosave';
+let autosaveIntervalId: ReturnType<typeof setInterval> | null = null;
 
 export function setupAutosave(): void {
   // Warn on tab close if there's unsaved data
@@ -178,18 +179,38 @@ export function setupAutosave(): void {
     }
   });
 
-  // Save to sessionStorage every 30s
-  setInterval(() => {
+  // Save to localStorage every 30s
+  autosaveIntervalId = setInterval(() => {
     const state = getState();
     const hasData = state.datasets.some(d => d.points.length > 0);
     if (!hasData) return;
     try {
       const snapshot = {
+        savedAt: Date.now(),
         calibration: state.calibration,
         datasets: state.datasets,
         image: state.image,
+        exportOptions: state.exportOptions,
       };
-      sessionStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot));
+      localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snapshot));
+      // Update autosave timestamp in status bar
+      const el = document.getElementById('st-autosave');
+      if (el) el.textContent = 'Autosaved';
     } catch { /* quota exceeded, ignore */ }
   }, 30_000);
+}
+
+export function destroyAutosave(): void {
+  if (autosaveIntervalId !== null) {
+    clearInterval(autosaveIntervalId);
+    autosaveIntervalId = null;
+  }
+}
+
+export function getAutosaveData(): string | null {
+  return localStorage.getItem(AUTOSAVE_KEY);
+}
+
+export function clearAutosave(): void {
+  localStorage.removeItem(AUTOSAVE_KEY);
 }

@@ -99,6 +99,7 @@ let overlayCanvas: HTMLCanvasElement;
 let ctx: CanvasRenderingContext2D;
 let overlayCtx: CanvasRenderingContext2D;
 let container: HTMLElement;
+let resizeObserver: ResizeObserver | null = null;
 
 // Callbacks set by other modules
 let onCalibClick: ((imgX: number, imgY: number) => void) | null = null;
@@ -156,8 +157,8 @@ export function initCanvas(cont: HTMLElement): void {
   overlayCtx = overlayCanvas.getContext('2d')!;
 
   resizeCanvas();
-  const ro = new ResizeObserver(() => { resizeCanvas(); render(); });
-  ro.observe(container);
+  resizeObserver = new ResizeObserver(() => { resizeCanvas(); render(); });
+  resizeObserver.observe(container);
 
   mainCanvas.addEventListener('wheel', handleWheel, { passive: false });
   mainCanvas.addEventListener('mousedown', handleMouseDown);
@@ -1145,6 +1146,10 @@ function getCursorForTool(tool: string): string {
     case 'template': return 'crosshair';
     default: return 'default';
   }
+}
+
+export function destroyCanvas(): void {
+  if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
 }
 
 export function fitToWindow(): void {

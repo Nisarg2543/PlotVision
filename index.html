@@ -12,10 +12,31 @@
   <meta name="twitter:title" content="PlotVision — Extract Data from Any Chart" />
   <meta name="twitter:description" content="Free browser-based graph digitizer. Load any chart image and export clean data to CSV, Excel, or JSON." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="canonical" href="https://plotvision.vercel.app" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="PlotVision" />
+  <meta property="og:url" content="https://plotvision.vercel.app" />
+  <meta property="og:image" content="https://plotvision.vercel.app/og-image.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://plotvision.vercel.app/og-image.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.min.js" crossorigin="anonymous"></script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "PlotVision",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "Web",
+    "description": "Free browser-based graph digitizer. Extract numerical data from chart images with precision.",
+    "url": "https://plotvision.vercel.app",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+  }
+  </script>
   <link rel="stylesheet" href="/src/style.css" />
   <style>
     body { display:flex; flex-direction:column; height:100dvh; overflow:hidden; user-select:none; }
@@ -81,38 +102,45 @@
     <span id="st-file" style="color:var(--color-muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;"></span>
   </footer>
 
-  <!-- Toast container -->
-  <div id="toast-container"></div>
-
   <!-- Shortcuts modal -->
-  <div id="shortcuts-modal" style="display:none;" class="modal-backdrop">
+  <div id="shortcuts-modal" style="display:none;" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts">
     <div class="modal">
       <div class="modal-header">
         <span class="modal-title">Keyboard Shortcuts</span>
-        <button class="modal-close" id="shortcuts-close">×</button>
+        <button class="modal-close" id="shortcuts-close" aria-label="Close shortcuts">×</button>
       </div>
       <div id="shortcuts-content" style="padding:14px 18px 18px;display:grid;grid-template-columns:1fr 1fr;gap:0 20px;"></div>
     </div>
   </div>
 
   <!-- Export modal -->
-  <div id="export-modal" style="display:none;" class="modal-backdrop">
+  <div id="export-modal" style="display:none;" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Export Data">
     <div class="modal" style="width:420px;">
       <div class="modal-header">
         <span class="modal-title">Export Data</span>
-        <button class="modal-close" id="export-modal-close">×</button>
+        <button class="modal-close" id="export-modal-close" aria-label="Close export">×</button>
       </div>
       <div id="export-modal-body"></div>
     </div>
   </div>
 
   <!-- Delete confirm -->
-  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface);border:1px solid var(--color-border-2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:12px 14px;min-width:172px;">
+  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface);border:1px solid var(--color-border-2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:12px 14px;min-width:172px;" role="dialog" aria-modal="true" aria-label="Confirm delete">
     <p style="font-size:12px;color:var(--color-text);margin-bottom:10px;">Delete this point?</p>
     <div style="display:flex;gap:7px;justify-content:flex-end;">
       <button id="delete-cancel"  class="btn btn-ghost   btn-sm" style="width:auto;">Cancel</button>
       <button id="delete-confirm" class="btn btn-danger  btn-sm" style="width:auto;">Delete</button>
     </div>
+  </div>
+
+  <!-- Toast container (aria-live for screen readers) -->
+  <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Autosave recovery banner (shown by JS if unsaved session found) -->
+  <div id="recovery-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;background:#2563eb;color:#fff;padding:10px 16px;display:none;align-items:center;gap:12px;font-size:13px;">
+    <span>🔄 Unsaved session found —</span>
+    <button id="recovery-restore" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:12px;">Restore</button>
+    <button id="recovery-dismiss" style="background:none;border:none;color:rgba(255,255,255,0.7);cursor:pointer;margin-left:auto;font-size:16px;" aria-label="Dismiss">×</button>
   </div>
 
   <script type="module" src="/src/main.ts"></script>

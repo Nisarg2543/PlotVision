@@ -1,4 +1,5 @@
 import { getState, subscribe } from '../state/store';
+import { esc } from '../utils/sanitize';
 import { fitToWindow, zoomBy } from '../modules/canvas-engine';
 import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
@@ -149,7 +150,7 @@ function openExportModal(): void {
   summary.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 18px 10px;border-bottom:1px solid var(--color-border);background:var(--color-surface-3);font-size:11px;color:var(--color-muted);gap:12px;';
   summary.innerHTML = `
     <span><strong style="color:var(--color-text);font-family:var(--font-mono);">${totalPoints}</strong> points &nbsp;·&nbsp; <strong style="color:var(--color-text);font-family:var(--font-mono);">${dsCount}</strong> dataset${dsCount !== 1 ? 's' : ''}</span>
-    <span style="font-family:var(--font-mono);color:var(--color-text-2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;" title="${baseFilename}">${baseFilename}</span>
+    <span style="font-family:var(--font-mono);color:var(--color-text-2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px;" title="${esc(baseFilename)}">${esc(baseFilename)}</span>
   `;
   body.appendChild(summary);
 
@@ -159,7 +160,7 @@ function openExportModal(): void {
 
   const rows: { label: string; sub: string; action: () => void; disabled?: boolean }[] = [
     { label: 'CSV — All datasets',   sub: `${totalPoints} points across all datasets`,       action: () => exportCSV() },
-    { label: 'CSV — Active dataset', sub: activeDs ? `"${activeDs.name}" · ${activeDs.points.length} pts` : 'No dataset selected', action: () => activeDs ? exportCSV(activeDs.id) : undefined, disabled: !activeDs },
+    { label: 'CSV — Active dataset', sub: activeDs ? `"${esc(activeDs.name)}" · ${activeDs.points.length} pts` : 'No dataset selected', action: () => activeDs ? exportCSV(activeDs.id) : undefined, disabled: !activeDs },
     { label: 'Excel (.xlsx)',        sub: 'Each dataset on a separate sheet',                action: () => exportExcel() },
     { label: 'JSON',                 sub: 'Structured with calibration metadata',            action: () => exportJSON() },
     { label: 'Copy to Clipboard',    sub: 'Tab-separated, paste into Excel/Sheets',          action: () => exportClipboard() },
@@ -172,7 +173,9 @@ function openExportModal(): void {
     const btn = document.createElement('button');
     btn.disabled = !!row.disabled;
     btn.style.cssText = `display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:9px 12px;border-radius:7px;border:1px solid var(--color-border);background:var(--color-surface);cursor:${row.disabled ? 'not-allowed' : 'pointer'};opacity:${row.disabled ? '0.4' : '1'};transition:border-color 0.12s,background 0.12s;text-align:left;`;
-    btn.innerHTML = `<span style="font-size:12px;font-weight:600;color:var(--color-text);">${row.label}</span><span style="font-size:11px;color:var(--color-muted);">${row.sub}</span>`;
+    const lblEl = document.createElement('span'); lblEl.style.cssText = 'font-size:12px;font-weight:600;color:var(--color-text);'; lblEl.textContent = row.label;
+    const subEl = document.createElement('span'); subEl.style.cssText = 'font-size:11px;color:var(--color-muted);'; subEl.textContent = row.sub;
+    btn.appendChild(lblEl); btn.appendChild(subEl);
     if (!row.disabled) {
       btn.addEventListener('mouseenter', () => { btn.style.borderColor = 'color-mix(in srgb,var(--color-accent) 40%,transparent)'; btn.style.background = 'var(--color-accent-dim)'; });
       btn.addEventListener('mouseleave', () => { btn.style.borderColor = 'var(--color-border)'; btn.style.background = 'var(--color-surface)'; });
