@@ -10,6 +10,9 @@ import { showToast } from '../utils/toast';
 import { readFileAsArrayBuffer } from '../utils/file';
 import { uid } from '../utils/math';
 
+// Render scale for PDF batch items. Higher = better quality but uses more memory.
+const PDF_RENDER_SCALE = 2.0;
+
 export interface BatchItem {
   id: string;
   file: File;
@@ -55,9 +58,13 @@ export async function advanceBatch(): Promise<void> {
       const buf = await readFileAsArrayBuffer(item.file);
       const doc = await pdfjsLib.getDocument({ data: buf }).promise;
       const page = await doc.getPage(1);
-      const viewport = page.getViewport({ scale: 2.0 });
+      const viewport = page.getViewport({ scale: PDF_RENDER_SCALE });
       const offscreen = document.createElement('canvas');
-      offscreen.width = viewport.width; offscreen.height = viewport.height;
+      offscreen.width  = Math.round(viewport.width);
+      offscreen.height = Math.round(viewport.height);
+      if (offscreen.width === 0 || offscreen.height === 0) {
+        throw new Error('PDF page rendered to zero-size canvas');
+      }
       await page.render({ canvasContext: offscreen.getContext('2d')!, viewport }).promise;
       bitmap = await createImageBitmap(offscreen);
     } else {

@@ -151,6 +151,7 @@ export function detectBars(settings: BarDetectorSettings): BarDetectorResult | n
     let barStart = -1;
     const flush = (barEnd: number) => {
       const height = barEnd - barStart;
+      // For horizontal bars the "bar width" is the row-span (height in pixels)
       if (height < settings.minBarWidth) return;
       const yCenter = Math.round((barStart + barEnd) / 2);
       const rights: number[] = [];

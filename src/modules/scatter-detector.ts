@@ -78,12 +78,17 @@ export function detectScatterPoints(settings: ScatterDetectorSettings): ScatterD
       blobPixels[label].push(idx);
       const x = idx % W, y = Math.floor(idx / W);
 
-      // 4-connected neighbours
+      // 8-connected neighbours (diagonals included — prevents splitting markers
+      // that are connected only corner-to-corner)
       const neighbours = [
-        y > 0     ? idx - W : -1,
-        y < H - 1 ? idx + W : -1,
-        x > 0     ? idx - 1 : -1,
-        x < W - 1 ? idx + 1 : -1,
+        y > 0                       ? idx - W     : -1,
+        y < H - 1                   ? idx + W     : -1,
+        x > 0                       ? idx - 1     : -1,
+        x < W - 1                   ? idx + 1     : -1,
+        y > 0     && x > 0          ? idx - W - 1 : -1,
+        y > 0     && x < W - 1      ? idx - W + 1 : -1,
+        y < H - 1 && x > 0          ? idx + W - 1 : -1,
+        y < H - 1 && x < W - 1      ? idx + W + 1 : -1,
       ];
       for (const n of neighbours) {
         if (n >= 0 && mask[n] && labels[n] === -1) {

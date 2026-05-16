@@ -145,8 +145,12 @@ export function runTemplateMatch(threshold = 0.7, minSpacing = 10): TemplateMatc
       }
       const n = tw * th;
       const imgMean = imgSum / n;
-      const imgStd = Math.sqrt(imgSumSq / n - imgMean * imgMean);
-      const ncc = tmStd > 0 && imgStd > 0 ? (sum / n - imgMean * tmMean) / (imgStd * tmStd) : 0;
+      // Clamp to 0 before sqrt — float precision can produce tiny negatives
+      const imgVar = Math.max(0, imgSumSq / n - imgMean * imgMean);
+      const imgStd = Math.sqrt(imgVar);
+      // Skip uniform patches — they match everything, producing noise
+      if (imgStd < 1e-6) continue;
+      const ncc = tmStd > 0 ? (sum / n - imgMean * tmMean) / (imgStd * tmStd) : 0;
       corrMap.push([x + tw / 2, y + th / 2, ncc]);
     }
   }

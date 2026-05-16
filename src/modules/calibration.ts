@@ -68,7 +68,15 @@ export function startCalibration(): void {
 }
 
 export function handleCalibClick(imgX: number, imgY: number): void {
-  const { step, axisType } = getState().calibration;
+  const state = getState();
+  // Reject clicks outside image bounds
+  if (state.image.width > 0 && state.image.height > 0) {
+    if (imgX < 0 || imgX >= state.image.width || imgY < 0 || imgY >= state.image.height) {
+      showToast('Click inside the chart area', 'warning');
+      return;
+    }
+  }
+  const { step, axisType } = state.calibration;
 
   // Polar calibration clicks
   if (step === 'polar-place-center') {
@@ -216,6 +224,10 @@ function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null 
 
   if (!x1 || !x2 || !y1 || !y2) return null;
   if (x1.dataX === null || x2.dataX === null || y1.dataY === null || y2.dataY === null) return null;
+  if (!isFinite(x1.dataX)) { showToast('X1 value must be a finite number', 'error'); return null; }
+  if (!isFinite(x2.dataX)) { showToast('X2 value must be a finite number', 'error'); return null; }
+  if (!isFinite(y1.dataY)) { showToast('Y1 value must be a finite number', 'error'); return null; }
+  if (!isFinite(y2.dataY)) { showToast('Y2 value must be a finite number', 'error'); return null; }
 
   if (x1.pixelX === x2.pixelX) {
     showToast('X1 and X2 must differ horizontally', 'error'); return null;
@@ -276,6 +288,14 @@ export function handleCircularR1Confirm(val: number): void {
 
 export function handleCircularR2Confirm(val: number): void {
   if (isNaN(val)) { showToast('Enter a valid number', 'warning'); return; }
+  // Validate outer radius is physically farther from center than inner radius
+  const r1Dist = Math.hypot(circR1Px - circCenterPx, circR1Py - circCenterPy);
+  const r2Dist = Math.hypot(circR2Px - circCenterPx, circR2Py - circCenterPy);
+  if (r2Dist <= r1Dist) {
+    showToast('Outer radius must be farther from center than inner radius', 'error');
+    setState(d => { d.calibration.step = 'circ-place-r2'; });
+    return;
+  }
   // Store outer radius value temporarily in a calibration point slot
   setState(d => {
     d.calibration.points = d.calibration.points.filter(p => p.role !== 'x2');

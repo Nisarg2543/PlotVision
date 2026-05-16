@@ -85,7 +85,8 @@ export function exportCSV(datasetId?: string): void {
       const name = `"${ds.name.replace(/"/g, '""')}"`;
       let row: string;
       if (axisType === 'ternary') {
-        const c = parseFloat((100 - pt.dataX - pt.dataY).toFixed(4));
+        // Clamp C to [0, 100] — floating-point digitization can produce A+B slightly > 100
+        const c = Math.max(0, parseFloat((100 - pt.dataX - pt.dataY).toFixed(4)));
         row = `${name},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)},${c}`;
       } else if (axisType === 'date-x') {
         row = `${name},${formatDate(pt.dataX, opts.dateFmt)},${formatNum(pt.dataY, opts)}`;

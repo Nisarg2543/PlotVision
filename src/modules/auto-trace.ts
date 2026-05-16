@@ -155,9 +155,9 @@ export function runAutoTraceAsync(
     const result = buildPointsFromColumnYs(columnYs, preview, W, H, settings, state);
     onResult(result);
   };
-  worker.onerror = () => {
+  worker.onerror = (e: ErrorEvent) => {
+    console.warn('[detector-worker] crashed:', e.message, e.filename, `line ${e.lineno}`);
     worker.terminate();
-    // Fallback to synchronous on worker error
     onResult(runAutoTrace(settings));
   };
 
@@ -426,10 +426,13 @@ function cubicSplineInterpolate(xs: number[], ys: number[], maxX: number): (numb
 
   const result: (number | null)[] = new Array(maxX).fill(null);
   for (let x = 0; x < maxX; x++) {
-    // Find segment
-    let seg = n - 2;
-    for (let i = 0; i < n - 1; i++) { if (x >= xs[i] && x <= xs[i+1]) { seg = i; break; } }
-    if (x < xs[0] || x > xs[n-1]) continue;
+    // Find enclosing segment, clamping to boundary segments outside the knot range
+    let seg = 0;
+    if (x >= xs[n - 1]) {
+      seg = n - 2; // clamp to last segment for slight extrapolation
+    } else {
+      for (let i = 0; i < n - 1; i++) { if (x >= xs[i] && x <= xs[i+1]) { seg = i; break; } }
+    }
     const dx = x - xs[seg];
     result[x] = ys[seg] + b[seg]*dx + c[seg]*dx*dx + d[seg]*dx*dx*dx;
   }
