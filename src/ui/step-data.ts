@@ -10,7 +10,7 @@ import { getState, setState } from '../state/store';
 import {
   addDataset, removeDataset, setActiveDataset, toggleDatasetVisibility,
   renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints,
-  clearDatasetPoints, importPointsFromCSV,
+  clearDatasetPoints, importPointsFromCSV, flagOutliers, clearOutliers, removeOutliers,
 } from '../modules/datasets';
 import { updatePointData, deletePoint as deleteDataPoint, getPendingBarLabel, confirmBarLabel } from '../modules/digitizer';
 import {
@@ -38,8 +38,9 @@ import { esc } from '../utils/sanitize';
 import { Icons } from './icons';
 import {
   makeSec, makeDiv, makeSpan, makeRow, makeLbl, makeBtn,
-  makeSelect, makeIconBtn, makeCheckbox, makeFilterSlider, makeHint,
+  makeSelect, makeIconBtn, makeCheckbox, makeFilterSlider, makeHint, makeLabelWithTip,
 } from './ui-helpers';
+import { trapFocus } from '../utils/modal';
 import type { ExtractionMode } from '../state/types';
 import { updatePreview } from './preview-panel';
 
@@ -297,10 +298,11 @@ function renderMethodSettings(el: HTMLElement, state: ReturnType<typeof getState
     algSel.addEventListener('change', () => { curveAlgorithm = algSel.value as CurveAlgorithm; });
     settSec.appendChild(algSel);
 
-    settSec.appendChild(makeFilterSlider('Sensitivity', ats.tolerance, 0, 100, v => setAutoTraceSettings({ tolerance: v })));
+    settSec.appendChild(makeLabelWithTip('Sensitivity', 'Higher = picks up more pixels but may include noise. Lower = stricter color match, fewer false positives.'));
+    settSec.appendChild(makeFilterSlider('', ats.tolerance, 0, 100, v => setAutoTraceSettings({ tolerance: v })));
 
     if (curveAlgorithm === 'column-median') {
-      settSec.appendChild(makeLbl('Curve smoothness'));
+      settSec.appendChild(makeLabelWithTip('Curve smoothness', 'Smooths the traced line. Use "Smooth" for noisy or aliased images. Use "Rough" to preserve sharp features.'));
       const smoothSel = makeSelect([['none','Rough (none)'],['light','Medium'],['heavy','Smooth']], ats.smoothing);
       smoothSel.addEventListener('change', () => setAutoTraceSettings({ smoothing: smoothSel.value as any }));
       settSec.appendChild(smoothSel);
@@ -326,8 +328,10 @@ function renderMethodSettings(el: HTMLElement, state: ReturnType<typeof getState
     settSec.appendChild(makeFilterSlider(`Min bar width: ${barSettings.minBarWidth}px`, barSettings.minBarWidth, 2, 40, v => { barSettings.minBarWidth = v; }));
 
   } else {
-    settSec.appendChild(makeFilterSlider('Sensitivity', scatterSettings.tolerance, 0, 100, v => { scatterSettings.tolerance = v; }));
-    settSec.appendChild(makeFilterSlider(`Min marker size: ${scatterSettings.minBlobArea}px²`, scatterSettings.minBlobArea, 2, 100, v => { scatterSettings.minBlobArea = v; }));
+    settSec.appendChild(makeLabelWithTip('Sensitivity', 'How closely the marker color must match. Higher = picks up more pixels. Lower = stricter.'));
+    settSec.appendChild(makeFilterSlider('', scatterSettings.tolerance, 0, 100, v => { scatterSettings.tolerance = v; }));
+    settSec.appendChild(makeLabelWithTip('Min marker size (px²)', 'Ignore color blobs smaller than this area. Increase to filter out tiny noise specks.'));
+    settSec.appendChild(makeFilterSlider(`${scatterSettings.minBlobArea}px²`, scatterSettings.minBlobArea, 2, 100, v => { scatterSettings.minBlobArea = v; }));
     settSec.appendChild(makeFilterSlider(`Max marker size: ${scatterSettings.maxBlobArea}px²`, scatterSettings.maxBlobArea, 50, 2000, v => { scatterSettings.maxBlobArea = v; }));
     settSec.appendChild(makeFilterSlider(`Min spacing: ${scatterSettings.minSpacing}px`, scatterSettings.minSpacing, 2, 40, v => { scatterSettings.minSpacing = v; }));
   }
@@ -662,6 +666,8 @@ function renderPointsPanel(el: HTMLElement, state: ReturnType<typeof getState>):
 
   activeDs.points.slice(0, 500).forEach((pt, i) => {
     const tr = document.createElement('tr');
+    tr.dataset.pointId = pt.id;
+    tr.style.cursor = 'pointer';
     const xDisplay = formatCellX(pt, state.calibration.axisType);
     const yDisplay = (state.calibration.axisType === 'polar' || state.calibration.axisType === 'log-polar')
       ? pt.dataY.toFixed(2) + '°' : pt.dataY.toPrecision(6);
@@ -697,29 +703,75 @@ function renderPointsPanel(el: HTMLElement, state: ReturnType<typeof getState>):
   }, true);
 
   tbody.addEventListener('click', e => {
+    // Delete button
     const btn = (e.target as HTMLElement).closest('[data-delete]') as HTMLElement | null;
-    if (btn?.dataset.delete) deleteDataPoint(activeDs.id, btn.dataset.delete);
+    if (btn?.dataset.delete) { deleteDataPoint(activeDs.id, btn.dataset.delete); return; }
+    // Row click → open point editor
+    const row = (e.target as HTMLElement).closest('tr[data-point-id]') as HTMLElement | null;
+    if (row?.dataset.pointId) openPointEditor(activeDs.id, row.dataset.pointId, state.calibration.axisType);
   });
 
   el.appendChild(sortSec);
 
-  // Statistics
+  // Statistics (F6 — expanded)
   if (activeDs.points.length >= 2) {
     const xs = activeDs.points.map(p => p.dataX);
     const ys = activeDs.points.map(p => p.dataY);
+    const n = xs.length;
+    const meanX = xs.reduce((a, b) => a + b, 0) / n;
+    const meanY = ys.reduce((a, b) => a + b, 0) / n;
+    const stdX = Math.sqrt(xs.reduce((s, v) => s + (v - meanX) ** 2, 0) / n);
+    const stdY = Math.sqrt(ys.reduce((s, v) => s + (v - meanY) ** 2, 0) / n);
+    const cov  = xs.reduce((s, v, i) => s + (v - meanX) * (ys[i] - meanY), 0) / n;
+    const pearsonR = stdX > 0 && stdY > 0 ? cov / (stdX * stdY) : 0;
     const minX = Math.min(...xs), maxX = Math.max(...xs);
     const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const statSec = makeSec('Stats');
+
+    const statSec = makeSec('Statistics');
     const grid = makeDiv('stat-grid');
     const mkStat = (label: string, value: string) => {
       const c = makeDiv('stat-card');
       c.innerHTML = `<div class="stat-label">${label}</div><div class="stat-value">${value}</div>`;
       return c;
     };
-    grid.appendChild(mkStat('Points', String(activeDs.points.length)));
-    grid.appendChild(mkStat('X range', `${minX.toPrecision(3)} – ${maxX.toPrecision(3)}`));
-    grid.appendChild(mkStat('Y range', `${minY.toPrecision(3)} – ${maxY.toPrecision(3)}`));
+    grid.appendChild(mkStat('N', String(n)));
+    grid.appendChild(mkStat('Mean X', meanX.toPrecision(4)));
+    grid.appendChild(mkStat('Mean Y', meanY.toPrecision(4)));
+    grid.appendChild(mkStat('Std X', stdX.toPrecision(3)));
+    grid.appendChild(mkStat('Std Y', stdY.toPrecision(3)));
+    grid.appendChild(mkStat('Pearson r', pearsonR.toFixed(3)));
     statSec.appendChild(grid);
+
+    // Copy stats button
+    const copyBtn = makeBtn('Copy stats', 'btn btn-ghost btn-sm');
+    copyBtn.style.cssText = 'width:auto;margin-top:6px;';
+    copyBtn.addEventListener('click', () => {
+      const text = `N\t${n}\nMean X\t${meanX.toPrecision(6)}\nMean Y\t${meanY.toPrecision(6)}\nStd X\t${stdX.toPrecision(6)}\nStd Y\t${stdY.toPrecision(6)}\nPearson r\t${pearsonR.toFixed(6)}\nX range\t${minX.toPrecision(6)} – ${maxX.toPrecision(6)}\nY range\t${minY.toPrecision(6)} – ${maxY.toPrecision(6)}`;
+      navigator.clipboard.writeText(text).then(() => showToast('Stats copied', 'success'));
+    });
+    statSec.appendChild(copyBtn);
+
+    // Outlier detection UI (F7)
+    const outlierCount = activeDs.points.filter(p => p.outlier).length;
+    const outlierRow = makeRow('start');
+    outlierRow.style.cssText = 'gap:6px;margin-top:8px;flex-wrap:wrap;';
+    const detectBtn = makeBtn('Detect outliers (2.5σ)', 'btn btn-ghost btn-sm');
+    detectBtn.style.width = 'auto';
+    detectBtn.addEventListener('click', () => {
+      const found = flagOutliers(activeDs.id, 2.5);
+      showToast(found > 0 ? `${found} outlier${found !== 1 ? 's' : ''} flagged` : 'No outliers found', found > 0 ? 'warning' : 'info');
+    });
+    outlierRow.appendChild(detectBtn);
+    if (outlierCount > 0) {
+      const removeBtn = makeBtn(`Remove ${outlierCount} outlier${outlierCount !== 1 ? 's' : ''}`, 'btn btn-danger btn-sm');
+      removeBtn.style.width = 'auto';
+      removeBtn.addEventListener('click', () => { removeOutliers(activeDs.id); showToast('Outliers removed', 'info'); });
+      const clearBtn = makeBtn('Clear flags', 'btn btn-ghost btn-sm');
+      clearBtn.style.width = 'auto';
+      clearBtn.addEventListener('click', () => clearOutliers(activeDs.id));
+      outlierRow.appendChild(removeBtn); outlierRow.appendChild(clearBtn);
+    }
+    statSec.appendChild(outlierRow);
     el.appendChild(statSec);
   }
 
@@ -845,6 +897,88 @@ function openImportModal(datasetId: string): void {
   document.body.appendChild(modal);
   modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   setTimeout(() => ta.focus(), 50);
+}
+
+// ── F4: Point Editor Dialog ───────────────────────────────────────────────────
+
+function openPointEditor(datasetId: string, pointId: string, axisType: string): void {
+  const state = getState();
+  const ds = state.datasets.find(d => d.id === datasetId);
+  const pt = ds?.points.find(p => p.id === pointId);
+  if (!pt) return;
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--color-surface);border:1.5px solid var(--color-border);border-radius:14px;padding:20px;width:320px;font-family:var(--font-sans);box-shadow:0 24px 64px rgba(0,0,0,0.2);';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:14px;font-weight:700;color:var(--color-text);margin-bottom:14px;';
+  title.textContent = 'Edit Point';
+  box.appendChild(title);
+
+  const [colX, colY] = getAxisColumnLabels(axisType);
+  const xEditable = axisType !== 'bar-chart' && axisType !== 'date-x';
+
+  const fields: { label: string; value: string; key: 'x' | 'y' | 'label'; editable: boolean }[] = [
+    { label: colX, value: String(pt.dataX), key: 'x', editable: xEditable },
+    { label: colY, value: String(pt.dataY), key: 'y', editable: true },
+    { label: 'Label', value: pt.label ?? '', key: 'label', editable: true },
+  ];
+
+  const inputs: Record<string, HTMLInputElement> = {};
+  for (const f of fields) {
+    const lbl = document.createElement('label');
+    lbl.style.cssText = 'display:block;font-size:11px;font-weight:600;color:var(--color-text-2);margin-bottom:3px;margin-top:10px;';
+    lbl.textContent = f.label;
+    const inp = document.createElement('input');
+    inp.className = 'pv-input';
+    inp.type = f.key === 'label' ? 'text' : 'number';
+    inp.value = f.value;
+    inp.disabled = !f.editable;
+    if (!f.editable) inp.style.opacity = '0.5';
+    inp.addEventListener('keydown', e => { if (e.key === 'Escape') modal.remove(); if (e.key === 'Enter') doSave(); });
+    box.appendChild(lbl);
+    box.appendChild(inp);
+    inputs[f.key] = inp;
+  }
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:16px;';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-ghost btn-sm';
+  cancelBtn.style.width = 'auto';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => modal.remove());
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-primary btn-sm';
+  saveBtn.style.flex = '1';
+  saveBtn.textContent = 'Save';
+  saveBtn.addEventListener('click', doSave);
+  btnRow.appendChild(cancelBtn); btnRow.appendChild(saveBtn);
+  box.appendChild(btnRow);
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  const closeEditor = () => { modal.remove(); releaseEditor(); };
+  modal.addEventListener('click', e => { if (e.target === modal) closeEditor(); });
+  const releaseEditor = trapFocus(box, closeEditor);
+
+  function doSave(): void {
+    const newX = xEditable ? parseFloat(inputs.x.value) : pt!.dataX;
+    const newY = parseFloat(inputs.y.value);
+    const newLabel = inputs.label.value.trim() || undefined;
+    if (isNaN(newX) || isNaN(newY)) { showToast('X and Y must be valid numbers', 'warning'); return; }
+    import('../modules/history').then(m => m.pushHistory('Edit point'));
+    setState(d => {
+      const dsDraft = d.datasets.find(ds => ds.id === datasetId);
+      const ptDraft = dsDraft?.points.find(p => p.id === pointId);
+      if (ptDraft) { ptDraft.dataX = newX; ptDraft.dataY = newY; ptDraft.label = newLabel; }
+    });
+    modal.remove();
+    showToast('Point updated', 'success');
+  }
 }
 
 function getAxisColumnLabels(axisType: string): [string, string] {

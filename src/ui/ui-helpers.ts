@@ -113,3 +113,30 @@ export function makeHint(text: string): HTMLElement {
   el.textContent = text;
   return el;
 }
+
+/** Row with label + ℹ️ tooltip icon. Hover the icon to see explanation. */
+export function makeLabelWithTip(label: string, tip: string): HTMLElement {
+  const row = makeDiv('');
+  row.style.cssText = 'display:flex;align-items:center;gap:5px;margin-bottom:3px;';
+  const lbl = document.createElement('label');
+  lbl.className = 'pv-label';
+  lbl.style.marginBottom = '0';
+  lbl.textContent = label;
+  const icon = document.createElement('span');
+  icon.style.cssText = 'position:relative;display:inline-flex;align-items:center;cursor:help;color:var(--color-muted);';
+  icon.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`;
+  const tooltip = document.createElement('div');
+  tooltip.style.cssText = [
+    'position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);',
+    'background:#1e1b4b;color:#e0e7ff;font-size:11px;line-height:1.5;',
+    'padding:7px 10px;border-radius:8px;width:200px;pointer-events:none;z-index:500;',
+    'box-shadow:0 4px 16px rgba(0,0,0,0.2);white-space:normal;',
+    'opacity:0;transition:opacity 0.12s;',
+  ].join('');
+  tooltip.textContent = tip;
+  icon.appendChild(tooltip);
+  icon.addEventListener('mouseenter', () => { tooltip.style.opacity = '1'; });
+  icon.addEventListener('mouseleave', () => { tooltip.style.opacity = '0'; });
+  row.appendChild(lbl); row.appendChild(icon);
+  return row;
+}

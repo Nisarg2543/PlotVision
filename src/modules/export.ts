@@ -318,3 +318,83 @@ export async function exportProjectTar(): Promise<void> {
   downloadBlob(new Blob([tar], { type: 'application/x-tar' }), `${filename}-project.tar`);
   showToast('Project .tar exported', 'success');
 }
+
+// ── SVG Export ─────────────────────────────────────────────────────────────────
+
+export function exportSVG(datasetId?: string): void {
+  const state = getState();
+  const W = state.image.width || 800;
+  const H = state.image.height || 600;
+  const datasets = datasetId
+    ? state.datasets.filter(d => d.id === datasetId && d.visible)
+    : state.datasets.filter(d => d.visible);
+
+  const circles: string[] = [];
+  const polylines: string[] = [];
+
+  for (const ds of datasets) {
+    if (ds.points.length === 0) continue;
+    // Scatter circles for each point
+    const pts = ds.points;
+    circles.push(...pts.map(pt =>
+      `<circle cx="${pt.pixelX.toFixed(1)}" cy="${pt.pixelY.toFixed(1)}" r="4" fill="${ds.color}" fill-opacity="0.85" stroke="#fff" stroke-width="1.2"/>`
+    ));
+    // Polyline connecting points in order (useful for curve datasets)
+    if (pts.length > 1) {
+      const sorted = [...pts].sort((a, b) => a.pixelX - b.pixelX);
+      const d = sorted.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.pixelX.toFixed(1)},${p.pixelY.toFixed(1)}`).join(' ');
+      polylines.push(`<path d="${d}" fill="none" stroke="${ds.color}" stroke-width="1.5" stroke-opacity="0.6" stroke-linecap="round" stroke-linejoin="round"/>`);
+    }
+  }
+
+  const svg = [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`,
+    `  <rect width="${W}" height="${H}" fill="#f5f5f7"/>`,
+    ...polylines.map(p => '  ' + p),
+    ...circles.map(c => '  ' + c),
+    `</svg>`,
+  ].join('\n');
+
+  const filename = state.image.filename.replace(/\.[^.]+$/, '') || 'plotvision';
+  downloadText(svg, `${filename}-export.svg`, 'image/svg+xml');
+  showToast('SVG exported', 'success');
+}
+
+// ── PNG Overlay Export ──────────────────────────────────────────────────────────
+
+export async function exportPNGOverlay(): Promise<void> {
+  const state = getState();
+  const { getImageBitmap } = await import('./canvas-engine');
+  const bmp = getImageBitmap();
+  if (!bmp) { showToast('Load an image first', 'warning'); return; }
+
+  const canvas = document.createElement('canvas');
+  canvas.width  = bmp.width;
+  canvas.height = bmp.height;
+  const ctx = canvas.getContext('2d')!;
+
+  // Draw original image
+  ctx.drawImage(bmp, 0, 0);
+
+  // Draw all visible dataset points on top
+  for (const ds of state.datasets.filter(d => d.visible)) {
+    for (const pt of ds.points) {
+      ctx.beginPath();
+      ctx.arc(pt.pixelX, pt.pixelY, 5, 0, Math.PI * 2);
+      ctx.fillStyle = ds.color;
+      ctx.globalAlpha = 0.9;
+      ctx.fill();
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 1;
+      ctx.stroke();
+    }
+  }
+
+  canvas.toBlob(blob => {
+    if (!blob) { showToast('Failed to generate PNG', 'error'); return; }
+    const filename = state.image.filename.replace(/\.[^.]+$/, '') || 'plotvision';
+    downloadBlob(blob, `${filename}-overlay.png`);
+    showToast('PNG with points exported', 'success');
+  }, 'image/png');
+}

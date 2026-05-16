@@ -5,9 +5,10 @@ import { fitToWindow, zoomBy } from '../modules/canvas-engine';
 import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
 import { saveProject, openProjectPicker } from '../modules/project';
-import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX, exportPlotly, exportProjectTar } from '../modules/export';
+import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX, exportPlotly, exportProjectTar, exportSVG, exportPNGOverlay } from '../modules/export';
 import { openBatchPicker, isBatchActive, markCurrentDone, skipCurrent, getQueue, getCurrentIndex } from '../modules/batch';
 import { Icons } from './icons';
+import { trapFocus } from '../utils/modal';
 
 function mkBtn(inner: string, label: string, title: string, cls = ''): HTMLButtonElement {
   const b = document.createElement('button');
@@ -190,6 +191,8 @@ function openExportModal(): void {
     { label: 'Copy to Clipboard',     sub: 'Tab-separated, paste into Excel / Google Sheets', action: () => exportClipboard() },
     { label: 'LaTeX table',           sub: '\\tabular{cc} environment',                       action: () => exportLaTeX() },
     { label: 'Plotly HTML',           sub: 'Interactive chart — open in any browser',         action: () => exportPlotly() },
+    { label: 'SVG',                   sub: 'Points as vector graphics (pixel coordinates)',   action: () => exportSVG() },
+    { label: 'PNG with points',       sub: 'Original image + all points drawn on top',        action: () => void exportPNGOverlay() },
     { label: 'Project bundle (.tar)', sub: 'Image + calibration + all data bundled',          action: () => void exportProjectTar() },
   ];
 
@@ -210,8 +213,10 @@ function openExportModal(): void {
   body.appendChild(btnWrap);
 
   modal.style.display = 'flex';
-  document.getElementById('export-modal-close')!.onclick = () => { modal.style.display = 'none'; };
-  modal.onclick = e => { if (e.target === modal) modal.style.display = 'none'; };
+  const closeExport = () => { modal.style.display = 'none'; releaseExport(); };
+  document.getElementById('export-modal-close')!.onclick = closeExport;
+  modal.onclick = e => { if (e.target === modal) closeExport(); };
+  const releaseExport = trapFocus(modal.querySelector('.modal') as HTMLElement, closeExport);
 }
 
 function openBatchStatusModal(): void {
@@ -286,10 +291,10 @@ function buildShortcutsModal(): void {
     </div>
   `).join('');
 
-  document.getElementById('shortcuts-close')!.onclick = () => {
-    (document.getElementById('shortcuts-modal') as HTMLElement).style.display = 'none';
-  };
-  document.getElementById('shortcuts-modal')!.addEventListener('click', e => {
-    if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).style.display = 'none';
-  });
+  const shortcutsModal = document.getElementById('shortcuts-modal') as HTMLElement;
+  const closeShortcuts = () => { shortcutsModal.style.display = 'none'; };
+  document.getElementById('shortcuts-close')!.onclick = closeShortcuts;
+  shortcutsModal.addEventListener('click', e => { if (e.target === shortcutsModal) closeShortcuts(); });
+  // Set up Escape key trap once (modal reuses same DOM)
+  shortcutsModal.addEventListener('keydown', e => { if (e.key === 'Escape') closeShortcuts(); }, { capture: true });
 }

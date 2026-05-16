@@ -643,15 +643,43 @@ function drawDatasetPoints(
   for (const pt of ds.points) {
     const { canvasX, canvasY } = imageToCanvas(pt.pixelX, pt.pixelY, zoom, panX, panY);
     const isHover = hoverPointId === pt.id;
+    const isOutlier = (pt as any).outlier === true;
     const r = isHover ? 7 : 5;
 
-    ctx.beginPath();
-    ctx.arc(canvasX, canvasY, r, 0, Math.PI * 2);
-    ctx.fillStyle = ds.color;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    // Out-of-range check: pixel coords outside the image bounds
+    const state = getState();
+    const outOfRange = state.image.width > 0 && (
+      pt.pixelX < 0 || pt.pixelX >= state.image.width ||
+      pt.pixelY < 0 || pt.pixelY >= state.image.height
+    );
+
+    if (isOutlier) {
+      // Outlier: hollow circle with dashed stroke
+      ctx.beginPath();
+      ctx.arc(canvasX, canvasY, r + 2, 0, Math.PI * 2);
+      ctx.strokeStyle = ds.color;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    } else {
+      ctx.beginPath();
+      ctx.arc(canvasX, canvasY, r, 0, Math.PI * 2);
+      ctx.fillStyle = ds.color;
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+
+    // Out-of-range warning ring
+    if (outOfRange) {
+      ctx.beginPath();
+      ctx.arc(canvasX, canvasY, r + 4, 0, Math.PI * 2);
+      ctx.strokeStyle = '#ef4444';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
     if (isHover && transform) {
       const text = `(${pt.dataX.toPrecision(5)}, ${pt.dataY.toPrecision(5)})`;

@@ -22,10 +22,32 @@ export interface BatchItem {
 
 let queue: BatchItem[] = [];
 let currentIndex = -1;
+let cancelled = false;
+let reuseCalibration = false;
+let progressListeners: Array<() => void> = [];
+
+export function setReuseCalibration(v: boolean): void { reuseCalibration = v; }
+export function getReuseCalibration(): boolean { return reuseCalibration; }
 
 export function getQueue(): BatchItem[] { return queue; }
 export function getCurrentIndex(): number { return currentIndex; }
-export function isBatchActive(): boolean { return queue.length > 0; }
+export function isBatchActive(): boolean { return queue.length > 0 && currentIndex < queue.length; }
+export function isBatchCancelled(): boolean { return cancelled; }
+
+/** Subscribe to batch progress updates (fires on each image advance or cancel) */
+export function onBatchProgress(fn: () => void): () => void {
+  progressListeners.push(fn);
+  return () => { progressListeners = progressListeners.filter(f => f !== fn); };
+}
+
+function notifyProgress(): void {
+  progressListeners.forEach(fn => fn());
+}
+
+export function cancelBatch(): void {
+  cancelled = true;
+  notifyProgress();
+}
 
 /** Load a set of files into the batch queue */
 export async function loadBatch(files: File[]): Promise<void> {
@@ -33,20 +55,25 @@ export async function loadBatch(files: File[]): Promise<void> {
 
   queue = files.map(f => ({ id: uid(), file: f, status: 'pending' }));
   currentIndex = -1;
+  cancelled = false;
   showToast(`Batch loaded: ${files.length} images`, 'info');
+  notifyProgress();
   await advanceBatch();
 }
 
 /** Move to the next image in the batch */
 export async function advanceBatch(): Promise<void> {
+  if (cancelled) { notifyProgress(); return; }
   currentIndex++;
   if (currentIndex >= queue.length) {
     showToast('Batch complete!', 'success', 4000);
+    notifyProgress();
     return;
   }
 
   const item = queue[currentIndex];
   item.status = 'active';
+  notifyProgress();
 
   try {
     let bitmap: ImageBitmap;
@@ -73,11 +100,16 @@ export async function advanceBatch(): Promise<void> {
 
     setImageBitmap(bitmap);
     setState(draft => {
+      // Snapshot calibration before overwriting image (for reuse)
+      const prevCalib = reuseCalibration ? { ...draft.calibration } : null;
       draft.image.width    = bitmap.width;
       draft.image.height   = bitmap.height;
       draft.image.filename = item.file.name;
       draft.image.currentPage = 1;
       draft.image.totalPages  = 1;
+      if (prevCalib) {
+        draft.calibration = prevCalib;
+      }
     });
 
     // Create a dedicated dataset for this batch item
@@ -88,11 +120,12 @@ export async function advanceBatch(): Promise<void> {
 
     fitToWindow();
     render();
+    notifyProgress();
     showToast(`Batch ${currentIndex + 1}/${queue.length}: ${item.file.name}`, 'info', 2500);
   } catch (err) {
     item.status = 'skipped';
+    notifyProgress();
     showToast(`Skipped "${item.file.name}": ${(err as Error).message}`, 'warning');
-    // Use void to explicitly not await — prevents unbounded recursion on many errors
     void advanceBatch();
   }
 }
@@ -114,6 +147,8 @@ export function markCurrentDone(): void {
 export function clearBatch(): void {
   queue = [];
   currentIndex = -1;
+  cancelled = false;
+  notifyProgress();
 }
 
 /** Open a multi-file picker for batch loading */

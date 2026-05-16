@@ -15,6 +15,11 @@ import { startScaleBar } from '../modules/scale-bar';
 import { startPerspective } from '../modules/perspective';
 import { goToPage } from '../modules/image-loader';
 import { setState } from '../state/store';
+import {
+  isBatchActive, getQueue, getCurrentIndex, cancelBatch, clearBatch,
+  skipCurrent, markCurrentDone, onBatchProgress,
+  getReuseCalibration, setReuseCalibration,
+} from '../modules/batch';
 import type { Tool } from '../state/types';
 
 type DockStep = 'load' | 'scale' | 'data' | 'measure';
@@ -38,14 +43,14 @@ export function initDock(): void {
   renderNav();
   renderContent();
 
-  // Debounced re-render on state change
+  // Re-render on state change (debounced)
   subscribe(() => {
     if (dockDebounce) clearTimeout(dockDebounce);
-    dockDebounce = setTimeout(() => {
-      renderNav();
-      renderContent();
-    }, 60);
+    dockDebounce = setTimeout(() => { renderNav(); renderContent(); }, 60);
   });
+
+  // Also re-render when batch progress changes
+  onBatchProgress(() => { renderNav(); renderContent(); });
 }
 
 function setStep(step: DockStep): void {
@@ -201,6 +206,21 @@ function renderStepLoad(container: HTMLElement): void {
     btnRow.appendChild(demoBtn);
 
     textCol.appendChild(btnRow);
+
+    // Batch reuse calibration toggle
+    const reuseRow = document.createElement('div');
+    reuseRow.style.cssText = 'display:flex;align-items:center;gap:7px;margin-top:4px;';
+    const reuseCheck = document.createElement('input');
+    reuseCheck.type = 'checkbox';
+    reuseCheck.checked = getReuseCalibration();
+    reuseCheck.style.cssText = 'accent-color:var(--color-accent);cursor:pointer;width:14px;height:14px;';
+    reuseCheck.addEventListener('change', () => setReuseCalibration(reuseCheck.checked));
+    const reuseLabel = document.createElement('span');
+    reuseLabel.style.cssText = 'font-size:11px;color:var(--color-text-2);';
+    reuseLabel.textContent = 'Use same scale for all images in batch';
+    reuseRow.appendChild(reuseCheck); reuseRow.appendChild(reuseLabel);
+    textCol.appendChild(reuseRow);
+
     wrap.appendChild(textCol);
 
     // Illustration
@@ -217,50 +237,123 @@ function renderStepLoad(container: HTMLElement): void {
     wrap.appendChild(illus);
 
   } else {
-    // Image loaded — show status + batch info
+    // Image loaded
     const col = document.createElement('div');
-    col.style.cssText = 'display:flex;flex-direction:column;gap:12px;';
+    col.style.cssText = 'display:flex;flex-direction:column;gap:12px;min-width:280px;';
 
-    const statusRow = document.createElement('div');
-    statusRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+    // ── Batch progress UI ──────────────────────────────────────
+    if (isBatchActive()) {
+      const bQueue = getQueue();
+      const bIdx   = getCurrentIndex();
+      const done   = bQueue.filter(i => i.status === 'done' || i.status === 'skipped').length;
+      const pct    = Math.round((done / bQueue.length) * 100);
 
-    const dot = document.createElement('span');
-    dot.className = 'status-dot ok';
-    dot.textContent = `Image loaded: ${state.image.filename || 'chart'}`;
-    statusRow.appendChild(dot);
+      const batchSec = document.createElement('div');
+      batchSec.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
 
-    col.appendChild(statusRow);
+      const bHeader = document.createElement('div');
+      bHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+      const bTitle = document.createElement('span');
+      bTitle.style.cssText = 'font-size:12px;font-weight:600;color:var(--color-text);';
+      bTitle.textContent = `Batch: ${bIdx + 1} / ${bQueue.length}`;
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-danger btn-sm';
+      cancelBtn.style.width = 'auto';
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.addEventListener('click', () => { cancelBatch(); clearBatch(); });
+      bHeader.appendChild(bTitle); bHeader.appendChild(cancelBtn);
+      batchSec.appendChild(bHeader);
 
-    if (state.image.totalPages > 1) {
-      const pdfRow = document.createElement('div');
-      pdfRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
-      const prevBtn = document.createElement('button');
-      prevBtn.className = 'btn btn-ghost btn-sm';
-      prevBtn.style.width = 'auto';
-      prevBtn.innerHTML = `${Icons.arrowLeft} Prev page`;
-      prevBtn.disabled = state.image.currentPage <= 1;
-      prevBtn.addEventListener('click', () => { goToPage(state.image.currentPage - 1); });
-      const pageInfo = document.createElement('span');
-      pageInfo.style.cssText = 'font-family:var(--font-mono);font-size:12px;color:var(--color-text-2);';
-      pageInfo.textContent = `Page ${state.image.currentPage} / ${state.image.totalPages}`;
-      const nextBtn = document.createElement('button');
-      nextBtn.className = 'btn btn-ghost btn-sm';
-      nextBtn.style.width = 'auto';
-      nextBtn.innerHTML = `Next page ${Icons.chevronRight}`;
-      nextBtn.disabled = state.image.currentPage >= state.image.totalPages;
-      nextBtn.addEventListener('click', () => { goToPage(state.image.currentPage + 1); });
-      pdfRow.appendChild(prevBtn); pdfRow.appendChild(pageInfo); pdfRow.appendChild(nextBtn);
-      col.appendChild(pdfRow);
+      // Progress bar
+      const track = document.createElement('div');
+      track.style.cssText = 'height:6px;border-radius:4px;background:var(--color-border);overflow:hidden;';
+      const fill = document.createElement('div');
+      fill.style.cssText = `height:100%;border-radius:4px;background:var(--color-accent);width:${pct}%;transition:width 0.3s ease;`;
+      track.appendChild(fill);
+      batchSec.appendChild(track);
+
+      // Current file
+      const curFile = bQueue[bIdx];
+      if (curFile) {
+        const fileRow = document.createElement('div');
+        fileRow.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:11px;color:var(--color-text-2);';
+        fileRow.innerHTML = `${Icons.imageIcon} <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${curFile.file.name}</span>`;
+        batchSec.appendChild(fileRow);
+      }
+
+      // Queue list (last 5 items)
+      const listWrap = document.createElement('div');
+      listWrap.style.cssText = 'display:flex;flex-direction:column;gap:3px;max-height:80px;overflow-y:auto;';
+      const statusIcon: Record<string, string> = {
+        pending: '○', active: '→', done: '✓', skipped: '⚠',
+      };
+      const statusColor: Record<string, string> = {
+        pending: 'var(--color-muted)', active: 'var(--color-accent)',
+        done: 'var(--color-success)', skipped: 'var(--color-warning)',
+      };
+      bQueue.slice(Math.max(0, bIdx - 2), bIdx + 4).forEach(item => {
+        const row = document.createElement('div');
+        row.style.cssText = `display:flex;align-items:center;gap:6px;font-size:11px;color:${statusColor[item.status]};`;
+        row.innerHTML = `<span style="flex-shrink:0;">${statusIcon[item.status]}</span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${item.file.name}</span>`;
+        listWrap.appendChild(row);
+      });
+      batchSec.appendChild(listWrap);
+
+      // Actions
+      const actRow = document.createElement('div');
+      actRow.style.cssText = 'display:flex;gap:6px;';
+      const skipBtn = document.createElement('button');
+      skipBtn.className = 'btn btn-ghost btn-sm';
+      skipBtn.style.width = 'auto';
+      skipBtn.textContent = 'Skip this image';
+      skipBtn.addEventListener('click', skipCurrent);
+      const doneBtn = document.createElement('button');
+      doneBtn.className = 'btn btn-success btn-sm';
+      doneBtn.style.flex = '1';
+      doneBtn.textContent = 'Done → Next image';
+      doneBtn.addEventListener('click', markCurrentDone);
+      actRow.appendChild(skipBtn); actRow.appendChild(doneBtn);
+      batchSec.appendChild(actRow);
+
+      col.appendChild(batchSec);
+    } else {
+      // Single image status
+      const dot = document.createElement('span');
+      dot.className = 'status-dot ok';
+      dot.textContent = `Loaded: ${state.image.filename || 'chart'}`;
+      col.appendChild(dot);
+
+      if (state.image.totalPages > 1) {
+        const pdfRow = document.createElement('div');
+        pdfRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+        const prevBtn = document.createElement('button');
+        prevBtn.className = 'btn btn-ghost btn-sm';
+        prevBtn.style.width = 'auto';
+        prevBtn.innerHTML = `${Icons.arrowLeft} Prev`;
+        prevBtn.disabled = state.image.currentPage <= 1;
+        prevBtn.addEventListener('click', () => { goToPage(state.image.currentPage - 1); });
+        const pageInfo = document.createElement('span');
+        pageInfo.style.cssText = 'font-family:var(--font-mono);font-size:12px;color:var(--color-text-2);';
+        pageInfo.textContent = `Page ${state.image.currentPage} / ${state.image.totalPages}`;
+        const nextBtn = document.createElement('button');
+        nextBtn.className = 'btn btn-ghost btn-sm';
+        nextBtn.style.width = 'auto';
+        nextBtn.innerHTML = `Next ${Icons.chevronRight}`;
+        nextBtn.disabled = state.image.currentPage >= state.image.totalPages;
+        nextBtn.addEventListener('click', () => { goToPage(state.image.currentPage + 1); });
+        pdfRow.appendChild(prevBtn); pdfRow.appendChild(pageInfo); pdfRow.appendChild(nextBtn);
+        col.appendChild(pdfRow);
+      }
+
+      const nextStepBtn = document.createElement('button');
+      nextStepBtn.className = 'btn btn-primary btn-sm';
+      nextStepBtn.style.width = 'auto';
+      nextStepBtn.innerHTML = state.calibration.isComplete
+        ? `Continue to Get Data ${Icons.chevronRight}`
+        : `Next: Set the Scale ${Icons.chevronRight}`;
+      nextStepBtn.addEventListener('click', () => setStep(state.calibration.isComplete ? 'data' : 'scale'));
+      col.appendChild(nextStepBtn);
     }
-
-    const nextStepBtn = document.createElement('button');
-    nextStepBtn.className = 'btn btn-primary btn-sm';
-    nextStepBtn.style.width = 'auto';
-    nextStepBtn.innerHTML = state.calibration.isComplete
-      ? `Continue to Get Data ${Icons.chevronRight}`
-      : `Next: Set the Scale ${Icons.chevronRight}`;
-    nextStepBtn.addEventListener('click', () => setStep(state.calibration.isComplete ? 'data' : 'scale'));
-    col.appendChild(nextStepBtn);
 
     wrap.appendChild(col);
   }

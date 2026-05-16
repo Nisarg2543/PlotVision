@@ -50,6 +50,7 @@ export interface DataPoint {
   dataX: number;
   dataY: number;
   label?: string;
+  outlier?: boolean;
 }
 
 export interface Dataset {

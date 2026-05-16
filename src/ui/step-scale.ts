@@ -10,6 +10,7 @@ import {
   handlePolarRConfirm, handleBarChartValueConfirm,
   handleCircularR1Confirm, handleCircularR2Confirm,
   handleCircularT1Confirm, handleCircularT2Confirm,
+  stepBackCalibration,
 } from '../modules/calibration';
 import {
   startScaleBar, resetScaleBar, commitScaleBar, getScaleBarStep,
@@ -130,6 +131,19 @@ export function renderStepScale(container: HTMLElement): void {
 
 function renderCalibWizard(el: HTMLElement, cal: ReturnType<typeof getState>['calibration']): void {
   const wizSec = makeSec('Mark the axes');
+
+  // Back button — always present in wizard
+  const navRow = makeRow('start');
+  navRow.style.cssText = 'gap:6px;margin-bottom:4px;';
+  const backBtn = makeBtn('← Back', 'btn btn-ghost btn-sm');
+  backBtn.style.width = 'auto';
+  backBtn.title = 'Go back one step';
+  backBtn.addEventListener('click', stepBackCalibration);
+  const cancelBtn = makeBtn('Cancel', 'btn btn-ghost btn-sm');
+  cancelBtn.style.width = 'auto';
+  cancelBtn.addEventListener('click', resetCalibration);
+  navRow.appendChild(backBtn); navRow.appendChild(cancelBtn);
+  wizSec.appendChild(navRow);
 
   if (cal.axisType === 'polar' || cal.axisType === 'log-polar') {
     const steps = ['polar-place-center', 'polar-place-ref', 'polar-await-r'];

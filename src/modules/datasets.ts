@@ -164,6 +164,52 @@ export function importPointsFromCSV(datasetId: string, csv: string): number {
   return points.length;
 }
 
+/**
+ * Flag points that are statistical outliers (|z-score| > zThreshold) on Y axis.
+ * Sets point.outlier = true/false. Call again with zThreshold=Infinity to clear.
+ */
+export function flagOutliers(datasetId: string, zThreshold = 2.5): number {
+  const state = getState();
+  const ds = state.datasets.find(d => d.id === datasetId);
+  if (!ds || ds.points.length < 3) return 0;
+
+  const ys = ds.points.map(p => p.dataY);
+  const mean = ys.reduce((a, b) => a + b, 0) / ys.length;
+  const std = Math.sqrt(ys.reduce((s, v) => s + (v - mean) ** 2, 0) / ys.length);
+  if (std === 0) return 0;
+
+  let count = 0;
+  setState(draft => {
+    const dsDraft = draft.datasets.find(d => d.id === datasetId)!;
+    dsDraft.points.forEach(p => {
+      p.outlier = Math.abs((p.dataY - mean) / std) > zThreshold;
+      if (p.outlier) count++;
+    });
+  });
+  return count;
+}
+
+export function clearOutliers(datasetId: string): void {
+  setState(draft => {
+    const ds = draft.datasets.find(d => d.id === datasetId);
+    if (ds) ds.points.forEach(p => { p.outlier = false; });
+  });
+}
+
+export function removeOutliers(datasetId: string): number {
+  const state = getState();
+  const ds = state.datasets.find(d => d.id === datasetId);
+  if (!ds) return 0;
+  const toRemove = ds.points.filter(p => p.outlier).length;
+  if (toRemove === 0) return 0;
+  pushHistory('Remove outliers');
+  setState(draft => {
+    const dsDraft = draft.datasets.find(d => d.id === datasetId)!;
+    dsDraft.points = dsDraft.points.filter(p => !p.outlier);
+  });
+  return toRemove;
+}
+
 export function cycleActiveDataset(): void {
   const state = getState();
   if (state.datasets.length === 0) return;

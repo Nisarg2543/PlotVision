@@ -388,6 +388,67 @@ export function resetCalibration(): void {
   showToast('Calibration reset', 'info');
 }
 
+/** Step back one step in the XY calibration wizard, removing the last placed point. */
+export function stepBackCalibration(): void {
+  const state = getState();
+  const { step, axisType } = state.calibration;
+  if (step === 'idle' || step === 'complete') return;
+
+  // XY / log / date-x / bar-chart: walk STEP_ORDER backwards
+  const xyOrder: CalibrationStep[] = [
+    'place-x1','await-x1-value','place-x2','await-x2-value',
+    'place-y1','await-y1-value','place-y2','await-y2-value',
+  ];
+  const barOrder: CalibrationStep[] = [
+    'bar-place-y1','bar-await-y1-value','bar-place-y2','bar-await-y2-value',
+  ];
+  const polarOrder: CalibrationStep[] = [
+    'polar-place-center','polar-place-ref','polar-await-r',
+  ];
+  const ternaryOrder: CalibrationStep[] = [
+    'ternary-place-a','ternary-place-b','ternary-place-c',
+  ];
+  const circOrder: CalibrationStep[] = [
+    'circ-place-center','circ-place-r1','circ-await-r1',
+    'circ-place-r2','circ-await-r2',
+    'circ-place-t1','circ-await-t1','circ-place-t2','circ-await-t2',
+  ];
+
+  const orderMap: Partial<Record<string, CalibrationStep[]>> = {
+    'xy-linear': xyOrder, 'xy-log-x': xyOrder, 'xy-log-y': xyOrder, 'xy-log-xy': xyOrder,
+    'date-x': xyOrder, 'map': xyOrder,
+    'bar-chart': barOrder,
+    'polar': polarOrder, 'log-polar': polarOrder,
+    'ternary': ternaryOrder,
+    'circular': circOrder,
+  };
+
+  const order = orderMap[axisType];
+  if (!order) return;
+
+  const idx = order.indexOf(step as CalibrationStep);
+  if (idx <= 0) {
+    // Already at first step — cancel calibration entirely
+    resetCalibration();
+    return;
+  }
+
+  const prevStep = order[idx - 1];
+  // Remove any calibration point placed at the CURRENT step
+  const roleAtCurrent: Partial<Record<CalibrationStep, string>> = {
+    'await-x1-value': 'x1', 'await-x2-value': 'x2',
+    'await-y1-value': 'y1', 'await-y2-value': 'y2',
+  };
+  const roleToRemove = roleAtCurrent[step as CalibrationStep] ?? null;
+
+  setState(d => {
+    if (roleToRemove) {
+      d.calibration.points = d.calibration.points.filter(p => p.role !== roleToRemove);
+    }
+    d.calibration.step = prevStep;
+  });
+}
+
 export function getWizardPrompt(): string {
   return STEP_PROMPTS[getState().calibration.step] ?? '';
 }

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:automeris.io)"
+      "WebFetch(domain:automeris.io)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
