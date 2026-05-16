@@ -2,8 +2,7 @@ import './style.css';
 import { initCanvas, setCanvasCallbacks } from './modules/canvas-engine';
 import { initImageLoader } from './modules/image-loader';
 import { initToolbar } from './ui/toolbar';
-import { initLeftPanel } from './ui/left-panel';
-import { initSidebar } from './ui/sidebar';
+import { initDock } from './ui/dock';
 import { initPreviewPanel } from './ui/preview-panel';
 import { initKeyboard } from './ui/keyboard';
 import { addDataset } from './modules/datasets';
@@ -29,10 +28,8 @@ if (localStorage.getItem('plotvision-theme') === 'dark') {
 function main(): void {
   const canvasContainer = document.getElementById('canvas-container');
   const topbar          = document.getElementById('topbar');
-  const leftPanel       = document.getElementById('left-panel');
-  const rightPanel      = document.getElementById('right-panel');
 
-  if (!canvasContainer || !topbar || !leftPanel || !rightPanel) {
+  if (!canvasContainer || !topbar) {
     console.error('PlotVision: required DOM elements missing — check index.html');
     return;
   }
@@ -47,7 +44,7 @@ function main(): void {
     onCalibDrag:    handleCalibDrag,
     onDeletePoint:  (datasetId, pointId) => deletePoint(datasetId, pointId),
     onPointDragEnd: () => pushHistoryOnDragEnd(),
-    onPieClick:          handlePieClick,
+    onPieClick:           handlePieClick,
     onScaleBarClick:      handleScaleBarClick,
     onPerspectiveClick:   handlePerspectiveClick,
     onTemplateDragStart:  handleTemplateDragStart,
@@ -59,19 +56,22 @@ function main(): void {
   // Image loading (drag-drop, paste, file picker, PDF)
   initImageLoader(canvasContainer);
 
-  // UI panels
+  // Toolbar (top bar)
   initToolbar(topbar);
-  initLeftPanel(leftPanel);
-  initSidebar(rightPanel);
-  initPreviewPanel(rightPanel); // subscribes to state; renders into #preview-chart in Data tab
+
+  // Bottom dock (replaces sidebar + left panel)
+  initDock();
+
+  // Preview chart panel (subscribes to state; renders into #preview-chart in dock)
+  initPreviewPanel(document.body); // subscribes to state, renders when canvas exists
 
   // Keyboard shortcuts
   initKeyboard();
 
-  // Default dataset so app is usable immediately
-  addDataset('Dataset 1');
+  // Default series so app is usable immediately
+  addDataset('Series 1');
 
-  // Warn on tab close if unsaved data exists
+  // Autosave to localStorage every 30s
   setupAutosave();
 
   // First-time onboarding tour
@@ -83,7 +83,7 @@ function main(): void {
     try {
       const parsed = JSON.parse(autosaveData);
       const age = Date.now() - (parsed.savedAt ?? 0);
-      if (age < 24 * 60 * 60 * 1000) { // within 24h
+      if (age < 24 * 60 * 60 * 1000) {
         const banner = document.getElementById('recovery-banner');
         if (banner) {
           banner.style.display = 'flex';
@@ -100,22 +100,20 @@ function main(): void {
           });
         }
       }
-    } catch { /* malformed autosave, ignore */ }
+    } catch { /* malformed autosave */ }
   }
 
-  // Global unhandled error handler
+  // Global error handler
   window.addEventListener('unhandledrejection', () => {
-    showToast('Something went wrong — if the issue persists, reload the page', 'error', 6000);
+    showToast('Something went wrong — reload the page if issues persist', 'error', 6000);
   });
 
   // Register service worker for PWA / offline support
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
-      // SW registration failure is non-fatal
-    });
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
   }
 
-  // Cleanup on page unload (prevents memory leaks)
+  // Cleanup on page unload
   window.addEventListener('beforeunload', () => {
     destroyImageLoader();
     destroyAutosave();

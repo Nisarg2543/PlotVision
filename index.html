@@ -8,7 +8,7 @@
   <meta property="og:title" content="PlotVision — Extract Data from Any Chart" />
   <meta property="og:description" content="The modern alternative to WebPlotDigitizer. Extract numerical data from chart images with precision. Free, browser-based, no signup." />
   <meta property="og:type" content="website" />
-  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="PlotVision — Extract Data from Any Chart" />
   <meta name="twitter:description" content="Free browser-based graph digitizer. Load any chart image and export clean data to CSV, Excel, or JSON." />
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -16,12 +16,11 @@
   <link rel="apple-touch-icon" href="/favicon.svg" />
   <link rel="canonical" href="https://plotvision.vercel.app" />
   <meta name="robots" content="index, follow" />
-  <meta name="theme-color" content="#2563eb" />
+  <meta name="theme-color" content="#6366f1" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-title" content="PlotVision" />
   <meta property="og:url" content="https://plotvision.vercel.app" />
   <meta property="og:image" content="https://plotvision.vercel.app/og-image.png" />
-  <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:image" content="https://plotvision.vercel.app/og-image.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -41,52 +40,46 @@
   }
   </script>
   <link rel="stylesheet" href="/src/style.css" />
-  <style>
-    body { display:flex; flex-direction:column; height:100dvh; overflow:hidden; user-select:none; }
-    .app-body { display:flex; flex:1; overflow:hidden; }
-  </style>
 </head>
 <body>
 
   <!-- Topbar -->
   <header id="topbar"></header>
 
+  <!-- Canvas + Dock -->
   <div class="app-body">
 
-    <!-- Left panel -->
-    <aside id="left-panel"></aside>
-
     <!-- Canvas -->
-    <main id="canvas-container" style="flex:1;position:relative;overflow:hidden;">
+    <main id="canvas-container">
       <canvas id="main-canvas"   style="position:absolute;inset:0;display:block;"></canvas>
       <canvas id="overlay-canvas" style="position:absolute;inset:0;pointer-events:none;display:block;"></canvas>
 
       <div id="drop-overlay" class="hidden">
-        <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12-4-4m4 4 4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21h14.878a2 2 0 0 0 1.94-1.515L22 17"/></svg>
-        <p style="font-size:14px;font-weight:600;color:var(--color-accent);">Drop to load</p>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3m0 12-4-4m4 4 4-4M2 17l.621 2.485A2 2 0 0 0 4.561 21h14.878a2 2 0 0 0 1.94-1.515L22 17"/></svg>
+        <p style="font-size:13px;font-weight:700;color:var(--color-accent);">Drop to load</p>
         <p style="font-size:11px;color:var(--color-text-2);">PNG · JPG · PDF · SVG · WebP</p>
       </div>
 
       <div id="empty-state">
         <div class="empty-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2"/>
             <path d="M3 9h18M9 21V9"/>
             <polyline points="7 15 10 12 13 14 17 10"/>
           </svg>
         </div>
-        <p class="empty-title">No image loaded</p>
-        <p class="empty-sub">Drag & drop a chart, paste from clipboard (Ctrl+V), or open a file below</p>
+        <p class="empty-title">Drop your chart here</p>
+        <p class="empty-sub">PNG, JPG, PDF — or press Ctrl+V to paste from clipboard</p>
         <button class="empty-open-btn" id="empty-open-btn">Open File</button>
-        <button class="empty-demo-btn" id="empty-demo-btn">Try demo chart</button>
+        <button class="empty-demo-btn" id="empty-demo-btn">Try a demo chart</button>
       </div>
     </main>
 
-    <!-- Right panel -->
-    <aside id="right-panel">
-      <div class="panel-tabs" id="panel-tabs"></div>
-      <div class="panel-body" id="panel-body"></div>
-    </aside>
+    <!-- Bottom Dock -->
+    <div id="dock" style="height:300px;">
+      <div id="dock-nav"></div>
+      <div id="dock-content"></div>
+    </div>
 
   </div>
 
@@ -118,7 +111,7 @@
 
   <!-- Export modal -->
   <div id="export-modal" style="display:none;" class="modal-backdrop" role="dialog" aria-modal="true" aria-label="Export Data">
-    <div class="modal" style="width:420px;">
+    <div class="modal" style="width:460px;">
       <div class="modal-header">
         <span class="modal-title">Export Data</span>
         <button class="modal-close" id="export-modal-close" aria-label="Close export">×</button>
@@ -128,7 +121,7 @@
   </div>
 
   <!-- Delete confirm -->
-  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface);border:1px solid var(--color-border-2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:12px 14px;min-width:172px;" role="dialog" aria-modal="true" aria-label="Confirm delete">
+  <div id="delete-popover" style="display:none;position:fixed;z-index:150;background:var(--color-surface);border:1.5px solid var(--color-border-2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:12px 14px;min-width:172px;" role="dialog" aria-modal="true" aria-label="Confirm delete">
     <p style="font-size:12px;color:var(--color-text);margin-bottom:10px;">Delete this point?</p>
     <div style="display:flex;gap:7px;justify-content:flex-end;">
       <button id="delete-cancel"  class="btn btn-ghost   btn-sm" style="width:auto;">Cancel</button>
@@ -136,13 +129,13 @@
     </div>
   </div>
 
-  <!-- Toast container (aria-live for screen readers) -->
+  <!-- Toast container -->
   <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
-  <!-- Autosave recovery banner (shown by JS if unsaved session found) -->
-  <div id="recovery-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;background:#2563eb;color:#fff;padding:10px 16px;display:none;align-items:center;gap:12px;font-size:13px;">
+  <!-- Autosave recovery banner -->
+  <div id="recovery-banner" style="display:none;position:fixed;top:0;left:0;right:0;z-index:200;background:var(--color-accent);color:#fff;padding:10px 16px;align-items:center;gap:12px;font-size:13px;">
     <span>🔄 Unsaved session found —</span>
-    <button id="recovery-restore" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:5px;padding:3px 10px;cursor:pointer;font-size:12px;">Restore</button>
+    <button id="recovery-restore" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:#fff;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:12px;">Restore</button>
     <button id="recovery-dismiss" style="background:none;border:none;color:rgba(255,255,255,0.7);cursor:pointer;margin-left:auto;font-size:16px;" aria-label="Dismiss">×</button>
   </div>
 
