@@ -1,5 +1,6 @@
 import { getState, setState } from '../state/store';
 import { uid, isTransformValid, distance } from '../utils/math';
+import { track } from '../utils/analytics';
 import { isLogAxisType, getLogFlags } from './axis-types';
 import { showToast } from '../utils/toast';
 import type { CalibrationPoint, CalibrationStep, CoordinateTransform } from '../state/types';
@@ -203,6 +204,7 @@ export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr
 
   if (getState().calibration.isComplete) {
     showToast('Calibration complete!', 'success');
+    track('calibration-complete', { axisType: getState().calibration.axisType });
   }
 }
 

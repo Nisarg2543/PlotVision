@@ -4,4 +4,5 @@ import tailwindcss from '@tailwindcss/vite';
 export default defineConfig({
   plugins: [tailwindcss()],
   build: { target: 'es2022' },
+  worker: { format: 'es' },
 });

@@ -1,12 +1,12 @@
 import { getState, setState, subscribe } from '../state/store';
 import {
   addDataset, removeDataset, setActiveDataset, toggleDatasetVisibility,
-  renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints, clearDatasetPoints,
+  renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints, clearDatasetPoints, importPointsFromCSV,
 } from '../modules/datasets';
 import { handleCalibValueConfirm, resetCalibration, getWizardPrompt, startCalibration, handlePolarRConfirm, handleBarChartValueConfirm, handleCircularR1Confirm, handleCircularR2Confirm, handleCircularT1Confirm, handleCircularT2Confirm } from '../modules/calibration';
 import { updatePointData, deletePoint as deleteDataPoint, getPendingBarLabel, confirmBarLabel } from '../modules/digitizer';
 import { goToPage } from '../modules/image-loader';
-import { getAutoTraceSettings, setAutoTraceSettings, runAutoTrace, runXStepTrace, runCustomIndependents, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
+import { getAutoTraceSettings, setAutoTraceSettings, runAutoTraceAsync, runXStepTrace, runCustomIndependents, commitAutoTrace, clearPreview, setPreviewData } from '../modules/auto-trace';
 import { defaultBarSettings, detectBars, detectAllBarLayers } from '../modules/bar-detector';
 import { defaultScatterSettings, detectScatterPoints } from '../modules/scatter-detector';
 import type { BarDetectorSettings } from '../modules/bar-detector';
@@ -24,7 +24,7 @@ import { showToast } from '../utils/toast';
 import { esc } from '../utils/sanitize';
 import type { ExtractionMode } from '../state/types';
 import { updatePreview } from '../ui/preview-panel';
-import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints } from '../modules/measure';
+import { getMeasureMode, setMeasureMode, reset as resetMeasure, getMeasureResult, getMeasurePoints, getMeasurementLog, clearMeasurementLog } from '../modules/measure';
 import type { CalibPointRole } from '../state/types';
 
 type Tab = 'calibrate' | 'data' | 'trace' | 'measure';
@@ -584,15 +584,51 @@ function renderDataTab(el: HTMLElement): void {
     const ptSec = makeSec(`Points — ${activeDs.name}`);
 
     const sortBar = makeDiv('');
-    sortBar.style.cssText = 'display:flex;align-items:center;gap:5px;padding:6px 12px;border-bottom:1px solid var(--color-border);';
+    sortBar.style.cssText = 'display:flex;align-items:center;gap:5px;padding:6px 12px;border-bottom:1px solid var(--color-border);flex-wrap:wrap;';
     const sortX = makeBtn('Sort X', 'btn btn-ghost btn-sm');
     sortX.addEventListener('click', () => sortDatasetPoints(activeDs.id, 'x'));
     const sortY = makeBtn('Sort Y', 'btn btn-ghost btn-sm');
     sortY.addEventListener('click', () => sortDatasetPoints(activeDs.id, 'y'));
+
+    // Import CSV button
+    const importBtn = makeBtn('Import CSV', 'btn btn-ghost btn-sm');
+    importBtn.title = 'Paste X,Y rows (comma or tab separated) to add points';
+    importBtn.addEventListener('click', () => {
+      const modal = document.createElement('div');
+      modal.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+      const box = document.createElement('div');
+      box.style.cssText = 'background:var(--color-surface);border:1px solid var(--color-border);border-radius:10px;padding:20px;width:340px;font-family:var(--font-sans);';
+      box.innerHTML = `
+        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">Import X,Y Points</div>
+        <div style="font-size:11px;color:var(--color-muted);margin-bottom:10px;">Paste CSV or TSV data — one row per point. First two columns used as X and Y. Optional third column as label.</div>
+      `;
+      const ta = document.createElement('textarea');
+      ta.style.cssText = 'width:100%;height:120px;resize:vertical;font-family:var(--font-mono);font-size:11px;padding:8px;border:1px solid var(--color-border);border-radius:6px;background:var(--color-bg);color:var(--color-text);';
+      ta.placeholder = '1.2, 3.4\n2.5, 6.1\n...';
+      box.appendChild(ta);
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;margin-top:10px;justify-content:flex-end;';
+      const cancelB = makeBtn('Cancel', 'btn btn-ghost btn-sm');
+      cancelB.addEventListener('click', () => modal.remove());
+      const confirmB = makeBtn('Import', 'btn btn-primary btn-sm');
+      confirmB.addEventListener('click', () => {
+        const count = importPointsFromCSV(activeDs.id, ta.value);
+        modal.remove();
+        if (count > 0) showToast(`Imported ${count} points`, 'success');
+        else showToast('No valid X,Y rows found', 'warning');
+      });
+      btnRow.appendChild(cancelB); btnRow.appendChild(confirmB);
+      box.appendChild(btnRow);
+      modal.appendChild(box);
+      document.body.appendChild(modal);
+      modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+      setTimeout(() => ta.focus(), 50);
+    });
+
     const spacer = makeDiv(''); spacer.style.flex = '1';
     const clearBtn = makeBtn('Clear', 'btn btn-danger btn-sm');
     clearBtn.addEventListener('click', () => clearDatasetPoints(activeDs.id));
-    sortBar.appendChild(sortX); sortBar.appendChild(sortY); sortBar.appendChild(spacer); sortBar.appendChild(clearBtn);
+    sortBar.appendChild(sortX); sortBar.appendChild(sortY); sortBar.appendChild(importBtn); sortBar.appendChild(spacer); sortBar.appendChild(clearBtn);
     ptSec.appendChild(sortBar);
 
     const wrap = makeDiv('');
@@ -1057,12 +1093,30 @@ function renderTraceTab(el: HTMLElement): void {
     if (traceExtractionMode === 'curve') {
       if (curveAlgorithm === 'x-step') {
         result = runXStepTrace(getAutoTraceSettings(), xStepPx);
+        // inline result handling below
       } else if (curveAlgorithm === 'custom-x') {
         const vals = customXStr.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
         if (vals.length === 0) { showToast('Enter at least one X value', 'warning'); return; }
         result = runCustomIndependents(getAutoTraceSettings(), vals);
       } else {
-        result = runAutoTrace(getAutoTraceSettings());
+        // Column-median — use async Web Worker
+        previewBtn.disabled = true; previewBtn.textContent = 'Tracing…';
+        import('../ui/loading-overlay').then(({ showLoading, hideLoading }) => {
+          showLoading('Tracing curve…');
+          runAutoTraceAsync(getAutoTraceSettings(), (asyncResult) => {
+            hideLoading();
+            previewBtn.disabled = false; previewBtn.textContent = previewLabel;
+            if (asyncResult) {
+              lastResult = asyncResult;
+              setPreviewData(asyncResult.previewData, asyncResult.width, asyncResult.height);
+              window.__autoTraceMod = { getPreviewData: () => ({ data: asyncResult.previewData, width: asyncResult.width, height: asyncResult.height }) };
+              canvasRender();
+              commitBtn.style.display = 'flex';
+              commitBtn.textContent = `Commit ${asyncResult.points.length} pts →`;
+            }
+          });
+        });
+        return; // async path — skip sync handling below
       }
     } else if (traceExtractionMode === 'bar') {
       result = detectBars(barSettings);
@@ -1448,6 +1502,41 @@ function renderMeasureTab(el: HTMLElement): void {
     hint.style.cssText = 'padding:16px 12px;font-size:11px;color:var(--color-muted);text-align:center;line-height:1.6;';
     hint.textContent = 'Press M to activate the Measure tool, then click points on the canvas';
     el.appendChild(hint);
+  }
+
+  // Measurement log
+  const log = getMeasurementLog();
+  if (log.length > 0) {
+    const logSec = makeSec(`History (${log.length})`);
+    const lb = makeSecBody(logSec);
+
+    const logWrap = makeDiv('');
+    logWrap.style.cssText = 'max-height:140px;overflow-y:auto;';
+    [...log].reverse().slice(0, 10).forEach(m => {
+      const row = makeDiv('');
+      row.style.cssText = 'font-size:11px;padding:3px 0;border-bottom:1px solid var(--color-faint);color:var(--color-text-2);display:flex;justify-content:space-between;gap:8px;';
+      const modeSpan = document.createElement('span');
+      modeSpan.style.cssText = 'color:var(--color-muted);flex-shrink:0;text-transform:capitalize;';
+      modeSpan.textContent = m.mode;
+      const resSpan = document.createElement('span');
+      resSpan.style.cssText = 'font-family:var(--font-mono);font-size:10px;';
+      resSpan.textContent = m.result;
+      row.appendChild(modeSpan); row.appendChild(resSpan);
+      logWrap.appendChild(row);
+    });
+    lb.appendChild(logWrap);
+
+    const actRow = makeRow('start'); actRow.style.cssText = 'gap:6px;margin-top:8px;';
+    const exportBtn = makeBtn('Export CSV', 'btn btn-ghost btn-sm');
+    exportBtn.addEventListener('click', () => {
+      import('../modules/export').then(m => m.exportMeasurements());
+    });
+    const clearBtn = makeBtn('Clear', 'btn btn-danger btn-sm');
+    clearBtn.addEventListener('click', () => { clearMeasurementLog(); initSidebarDebounced(); });
+    actRow.appendChild(exportBtn); actRow.appendChild(clearBtn);
+    lb.appendChild(actRow);
+
+    el.appendChild(logSec);
   }
 }
 

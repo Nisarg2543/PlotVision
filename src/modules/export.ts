@@ -1,6 +1,7 @@
 import { getState } from '../state/store';
 import { downloadText, downloadBlob } from '../utils/file';
 import { showToast } from '../utils/toast';
+import { track } from '../utils/analytics';
 import type { Dataset, DataPoint, ExportOptions } from '../state/types';
 
 // ── Formatting helpers ────────────────────────────────────────────────────────
@@ -108,6 +109,7 @@ export function exportCSV(datasetId?: string): void {
   const filename = state.image.filename.replace(/\.[^.]+$/, '') || 'plotvision';
   downloadText(lines.join('\n'), `${filename}-export.csv`, 'text/csv');
   showToast('CSV exported', 'success');
+  track('points-exported', { format: 'csv', points: datasets.reduce((s, d) => s + d.points.length, 0) });
 }
 
 export async function exportExcel(datasetId?: string): Promise<void> {
@@ -231,6 +233,23 @@ export function exportPlotly(datasetId?: string): void {
   const filename = state.image.filename.replace(/\.[^.]+$/, '') || 'plotvision';
   downloadText(html, `${filename}-plotly.html`, 'text/html');
   showToast('Plotly HTML exported', 'success');
+}
+
+export function exportMeasurements(): void {
+  // Lazy import to avoid circular dependency
+  import('./measure').then(({ getMeasurementLog }) => {
+    const log = getMeasurementLog();
+    if (log.length === 0) { showToast('No measurements recorded yet', 'warning'); return; }
+    const lines = ['Mode,Result,Time'];
+    for (const m of log) {
+      const t = new Date(m.timestamp).toLocaleTimeString();
+      lines.push(`"${m.mode}","${m.result.replace(/"/g, '""')}","${t}"`);
+    }
+    const filename = getState().image.filename.replace(/\.[^.]+$/, '') || 'plotvision';
+    downloadText(lines.join('\n'), `${filename}-measurements.csv`, 'text/csv');
+    showToast('Measurements exported', 'success');
+    track('points-exported', { format: 'measurements' });
+  });
 }
 
 export async function exportProjectTar(): Promise<void> {

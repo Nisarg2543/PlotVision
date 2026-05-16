@@ -1,3 +1,5 @@
+import { track } from '../utils/analytics';
+
 const ONBOARDING_KEY = 'plotvision-onboarded-v1';
 
 interface TourStep {
@@ -11,25 +13,61 @@ const STEPS: TourStep[] = [
   {
     targetId: 'canvas-container',
     title: 'Welcome to PlotVision',
-    body: 'Extract numerical data from any chart image. Start by loading an image — drag & drop, paste (Ctrl+V), or click Open in the toolbar.',
+    body: 'Extract numerical data from any chart image — for free, in your browser. Start by loading a chart: drag & drop, paste (Ctrl+V), or click <strong>Open</strong> in the toolbar.',
     position: 'right',
   },
   {
     targetId: 'left-panel',
-    title: 'Tool Rail',
-    body: 'Switch between tools here. V = Pointer, C = Calibrate, A = Add Point, T = Auto-Trace, M = Measure.',
+    title: 'Tools',
+    body: 'Switch tools here. Key shortcuts:<br><strong>V</strong> = Pointer &nbsp;·&nbsp; <strong>C</strong> = Calibrate &nbsp;·&nbsp; <strong>A</strong> = Add Point<br><strong>T</strong> = Auto-Trace &nbsp;·&nbsp; <strong>M</strong> = Measure<br><strong>B</strong> = Scale Bar &nbsp;·&nbsp; <strong>R</strong> = Region of Interest',
     position: 'right',
   },
   {
     targetId: 'right-panel',
-    title: 'Calibration & Data',
-    body: 'Calibrate the axes first, then switch to the Data tab to manage datasets and view extracted points.',
+    title: 'Step 1: Calibrate',
+    body: 'Open the <strong>Calibrate</strong> tab first. Select your axis type (linear, log, polar…), click <strong>Start Calibration</strong>, then click 4 known points on your chart axes and type their values.',
+    position: 'left',
+  },
+  {
+    targetId: 'right-panel',
+    title: 'Step 2: Add Points Manually',
+    body: 'Switch to the <strong>Data</strong> tab to see your datasets. Press <strong>A</strong> and click directly on data points in the chart to record their coordinates. The table updates live.',
+    position: 'left',
+  },
+  {
+    targetId: 'right-panel',
+    title: 'Step 3: Auto-Trace a Curve',
+    body: 'Open the <strong>Trace</strong> tab. Click the canvas with the T tool to pick the curve color, then hit <strong>Preview Trace</strong>. PlotVision will trace the entire curve automatically.',
+    position: 'left',
+  },
+  {
+    targetId: 'right-panel',
+    title: 'Other Extraction Modes',
+    body: 'The Trace tab also handles <strong>Bar charts</strong> (detect bars by color), <strong>Scatter plots</strong> (find markers), <strong>Pie charts</strong> (click sector boundaries), and <strong>Template matching</strong> (drag to capture a marker, find all copies).',
+    position: 'left',
+  },
+  {
+    targetId: 'right-panel',
+    title: 'Scale Bar & Perspective',
+    body: 'In the <strong>Calibrate</strong> tab, scroll down for two special tools:<br>• <strong>Scale Bar</strong> — draw a line over a physical scale bar, enter its length.<br>• <strong>Perspective</strong> — click 4 corners to correct photos taken at an angle.',
+    position: 'left',
+  },
+  {
+    targetId: 'right-panel',
+    title: 'Measure Tool',
+    body: 'The <strong>Measure</strong> tab lets you measure distances, angles, and areas directly on the chart — in data units once calibrated, or in real-world units if a scale bar is set.',
     position: 'left',
   },
   {
     targetId: 'topbar',
-    title: 'Save & Export',
-    body: 'Save your project (Ctrl+S) and export data as CSV, Excel, JSON, or copy to clipboard.',
+    title: 'Save Your Work',
+    body: 'Click <strong>Save</strong> (Ctrl+S) to download a <code>.pvz</code> project file. Load it back anytime to resume. Your session also autosaves to the browser every 30 seconds.',
+    position: 'bottom',
+  },
+  {
+    targetId: 'topbar',
+    title: 'Export Data',
+    body: 'Click <strong>Export</strong> to download as <strong>CSV</strong>, <strong>Excel</strong>, <strong>JSON</strong>, <strong>LaTeX</strong>, or an interactive <strong>Plotly HTML</strong> chart. You can also copy to clipboard for direct paste into Excel or Google Sheets.',
     position: 'bottom',
   },
 ];
@@ -38,10 +76,11 @@ let overlay: HTMLElement | null = null;
 
 export function initOnboarding(): void {
   if (localStorage.getItem(ONBOARDING_KEY)) return;
-  setTimeout(startTour, 600);
+  setTimeout(startTour, 700);
 }
 
 export function startTour(): void {
+  track('tour-started');
   showStep(0);
 }
 
@@ -56,71 +95,72 @@ function showStep(index: number): void {
   const rect = target.getBoundingClientRect();
   const gap  = 14;
 
-  // Full-screen container — pointer-events: none so clicks pass through to spotlight/tooltip
   const wrap = document.createElement('div');
   wrap.id = 'onboarding-overlay';
   wrap.style.cssText = 'position:fixed;inset:0;z-index:1000;pointer-events:none;';
 
-  // Dark backdrop (box-shadow trick — no separate div needed)
+  // Spotlight cutout via box-shadow
   const spotlight = document.createElement('div');
   spotlight.style.cssText = `
     position:fixed;
     left:${rect.left - 3}px; top:${rect.top - 3}px;
     width:${rect.width + 6}px; height:${rect.height + 6}px;
     border-radius:6px;
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.45);
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.48);
     outline: 2px solid #2563eb;
     pointer-events:none;
     z-index:1001;
   `;
 
-  // Tooltip — pointer-events:all overrides parent's none
   const tooltip = document.createElement('div');
+  const isDark = document.body.classList.contains('dark');
   tooltip.style.cssText = `
     position:fixed;
     z-index:1002;
     pointer-events:all;
-    background:#fff;
-    border:1px solid #e4e4e7;
+    background:${isDark ? '#1c1c1e' : '#fff'};
+    border:1px solid ${isDark ? '#3a3a3a' : '#e4e4e7'};
     border-radius:10px;
     padding:18px;
-    width:272px;
-    box-shadow:0 8px 32px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+    width:288px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.18), 0 2px 8px rgba(0,0,0,0.08);
     font-family:'Geist',system-ui,sans-serif;
+    color:${isDark ? '#e5e5e5' : '#111'};
   `;
 
-  // Position
   if (step.position === 'right') {
-    tooltip.style.left = `${rect.right + gap}px`;
-    tooltip.style.top  = `${Math.min(rect.top, window.innerHeight - 220)}px`;
+    tooltip.style.left = `${Math.min(rect.right + gap, window.innerWidth - 310)}px`;
+    tooltip.style.top  = `${Math.min(rect.top, window.innerHeight - 260)}px`;
   } else if (step.position === 'left') {
-    tooltip.style.right = `${window.innerWidth - rect.left + gap}px`;
-    tooltip.style.top   = `${Math.min(rect.top, window.innerHeight - 220)}px`;
+    tooltip.style.right = `${Math.max(window.innerWidth - rect.left + gap, 10)}px`;
+    tooltip.style.top   = `${Math.min(rect.top, window.innerHeight - 260)}px`;
   } else if (step.position === 'bottom') {
-    tooltip.style.left = `${Math.min(rect.left, window.innerWidth - 290)}px`;
-    tooltip.style.top  = `${rect.bottom + gap}px`;
+    tooltip.style.left = `${Math.min(rect.left, window.innerWidth - 310)}px`;
+    tooltip.style.top  = `${Math.min(rect.bottom + gap, window.innerHeight - 260)}px`;
   } else {
     tooltip.style.left   = `${rect.left}px`;
     tooltip.style.bottom = `${window.innerHeight - rect.top + gap}px`;
   }
 
-  // Progress dots
   const dots = STEPS.map((_, i) =>
-    `<div style="width:5px;height:5px;border-radius:50%;background:${i === index ? '#2563eb' : '#d4d4d8'};"></div>`
+    `<div style="width:5px;height:5px;border-radius:50%;background:${i === index ? '#2563eb' : (isDark ? '#3a3a3a' : '#d4d4d8')};flex-shrink:0;"></div>`
   ).join('');
+
+  const muted = isDark ? '#a1a1aa' : '#666';
+  const borderCol = isDark ? '#3a3a3a' : '#e4e4e7';
 
   tooltip.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-      <span style="font-size:13px;font-weight:600;color:#111;">${step.title}</span>
-      <span style="font-size:11px;color:#999;">${index + 1} / ${STEPS.length}</span>
+      <span style="font-size:13px;font-weight:600;">${step.title}</span>
+      <span style="font-size:11px;color:${muted};">${index + 1} / ${STEPS.length}</span>
     </div>
-    <p style="font-size:12px;color:#555;line-height:1.6;margin:0 0 16px;">${step.body}</p>
-    <div style="display:flex;align-items:center;gap:8px;">
-      <button id="tour-skip"  style="padding:5px 10px;font-size:11px;background:none;color:#999;border:1px solid #e4e4e7;border-radius:5px;cursor:pointer;font-family:inherit;">Skip</button>
-      <div style="flex:1;display:flex;justify-content:center;gap:5px;">${dots}</div>
-      ${index > 0 ? `<button id="tour-prev" style="padding:5px 10px;font-size:11px;background:none;color:#555;border:1px solid #e4e4e7;border-radius:5px;cursor:pointer;font-family:inherit;">← Back</button>` : ''}
-      <button id="tour-next" style="padding:5px 12px;font-size:11px;background:#2563eb;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;font-family:inherit;">
-        ${index === STEPS.length - 1 ? 'Get started' : 'Next →'}
+    <p style="font-size:12px;color:${muted};line-height:1.65;margin:0 0 16px;">${step.body}</p>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;">
+      <button id="tour-skip" style="padding:5px 10px;font-size:11px;background:none;color:${muted};border:1px solid ${borderCol};border-radius:5px;cursor:pointer;font-family:inherit;white-space:nowrap;">Skip</button>
+      <div style="flex:1;display:flex;justify-content:center;gap:4px;flex-wrap:wrap;">${dots}</div>
+      ${index > 0 ? `<button id="tour-prev" style="padding:5px 10px;font-size:11px;background:none;color:${muted};border:1px solid ${borderCol};border-radius:5px;cursor:pointer;font-family:inherit;">← Back</button>` : ''}
+      <button id="tour-next" style="padding:5px 12px;font-size:11px;background:#2563eb;color:#fff;border:none;border-radius:5px;cursor:pointer;font-weight:600;font-family:inherit;white-space:nowrap;">
+        ${index === STEPS.length - 1 ? '🎉 Get started' : 'Next →'}
       </button>
     </div>
   `;
@@ -143,4 +183,5 @@ function removeOverlay(): void {
 function finishTour(): void {
   removeOverlay();
   localStorage.setItem(ONBOARDING_KEY, '1');
+  track('tour-completed');
 }

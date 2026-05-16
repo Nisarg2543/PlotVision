@@ -5,6 +5,7 @@ import { linearPixelToData, linearDataToPixel, uid } from '../utils/math';
 import { isLogAxisType, getLogFlags, logPixelToData, logDataToPixel } from './axis-types';
 import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
+import { track } from '../utils/analytics';
 import type { DataPoint } from '../state/types';
 
 export interface AutoTraceSettings {
@@ -130,7 +131,72 @@ export function pickColorAtPixel(imgX: number, imgY: number): string {
   return `#${[d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join('')}`;
 }
 
-/** Run the curve trace algorithm — returns traced points + preview overlay. */
+/** Run the curve trace algorithm off the main thread via Web Worker. */
+export function runAutoTraceAsync(
+  settings: AutoTraceSettings,
+  onResult: (result: { points: DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null) => void
+): void {
+  const imgPx = getImagePixels();
+  if (!imgPx) { showToast('Load an image first', 'warning'); onResult(null); return; }
+  const state = getState();
+  if (!state.calibration.isComplete || !state.calibration.transform) {
+    showToast('Complete calibration before auto-tracing', 'warning'); onResult(null); return;
+  }
+  const { pixels, W, H } = imgPx;
+
+  // Shallow-copy pixels so we can transfer without affecting the original
+  const pixelsCopy = new Uint8ClampedArray(pixels.buffer.slice(0));
+
+  const worker = new Worker(new URL('../workers/detector-worker.ts', import.meta.url), { type: 'module' });
+
+  worker.onmessage = (e) => {
+    worker.terminate();
+    const { columnYs, preview } = e.data;
+    const result = buildPointsFromColumnYs(columnYs, preview, W, H, settings, state);
+    onResult(result);
+  };
+  worker.onerror = () => {
+    worker.terminate();
+    // Fallback to synchronous on worker error
+    onResult(runAutoTrace(settings));
+  };
+
+  worker.postMessage({
+    type: 'trace',
+    payload: {
+      pixels: pixelsCopy, W, H,
+      settings: {
+        targetColor: settings.targetColor, tolerance: settings.tolerance,
+        bgColor: settings.bgColor, bgTolerance: settings.bgTolerance,
+        samplingInterval: settings.samplingInterval, smoothing: settings.smoothing,
+        roi: state.canvas.roi,
+      },
+    },
+  }, [pixelsCopy.buffer]);
+}
+
+function buildPointsFromColumnYs(
+  columnYs: (number | null)[],
+  preview: Uint8ClampedArray,
+  W: number, H: number,
+  settings: AutoTraceSettings,
+  state: ReturnType<typeof getState>
+): { points: DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } {
+  const rawPoints: DataPoint[] = [];
+  const transform = state.calibration.transform!;
+  const axisType = state.calibration.axisType;
+  const useLog = isLogAxisType(axisType);
+  const { logX, logY } = useLog ? getLogFlags(axisType) : { logX: false, logY: false };
+  for (let x = 0; x < W; x += settings.samplingInterval) {
+    const y = columnYs[x];
+    if (y === null || y === undefined) continue;
+    const { dataX, dataY } = useLog ? logPixelToData(x, y, transform, logX, logY) : linearPixelToData(x, y, transform);
+    rawPoints.push({ id: uid(), pixelX: x, pixelY: Math.round(y), dataX, dataY });
+  }
+  return { points: rawPoints, previewData: preview, width: W, height: H };
+}
+
+/** Run the curve trace algorithm — synchronous fallback. */
 export function runAutoTrace(settings: AutoTraceSettings): { points: DataPoint[]; previewData: Uint8ClampedArray; width: number; height: number } | null {
   const imgPx = getImagePixels();
   if (!imgPx) { showToast('Load an image first', 'warning'); return null; }
@@ -399,6 +465,7 @@ export function commitAutoTrace(points: DataPoint[], datasetId?: string): void {
   });
   clearPreview();
   showToast(`Added ${points.length} traced points`, 'success');
+  track('auto-trace-committed', { points: points.length });
 }
 
 export function clearPreview(): void {

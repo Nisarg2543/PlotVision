@@ -4,6 +4,7 @@ import { readFileAsArrayBuffer } from '../utils/file';
 import { showToast } from '../utils/toast';
 import { detectChartType, getChartTypeLabel } from './auto-detect';
 import { showLoading, hideLoading } from '../ui/loading-overlay';
+import { track } from '../utils/analytics';
 
 // PDF document stored here (not cloneable)
 let pdfDoc: any = null;
@@ -157,6 +158,7 @@ function handleBitmapLoaded(
   fitToWindow();
   render();
   showToast(`Loaded: ${filename}${totalPages > 1 ? ` (page ${page}/${totalPages})` : ''}`, 'success');
+  track('image-loaded', { type: filename.split('.').pop()?.toLowerCase() ?? 'unknown' });
 
   // Auto-detect chart type in background after initial render
   setTimeout(() => {

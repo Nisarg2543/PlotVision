@@ -139,6 +139,31 @@ export function mergeDatasets(sourceId: string, targetId: string): void {
   showToast(`Merged "${src.name}" into "${tgt.name}"`, 'success');
 }
 
+export function importPointsFromCSV(datasetId: string, csv: string): number {
+  const lines = csv.split(/[\n\r]+/).filter(l => l.trim() && !l.startsWith('#'));
+  const points: import('../state/types').DataPoint[] = [];
+
+  for (const line of lines) {
+    // Skip header rows (non-numeric first token)
+    const parts = line.split(/[,\t;]/).map(s => s.trim().replace(/^["']|["']$/g, ''));
+    if (parts.length < 2) continue;
+    const x = parseFloat(parts[0]);
+    const y = parseFloat(parts[1]);
+    if (isNaN(x) || isNaN(y)) continue;
+    const label = parts[2] ?? undefined;
+    points.push({ id: uid(), pixelX: 0, pixelY: 0, dataX: x, dataY: y, label });
+  }
+
+  if (points.length === 0) return 0;
+
+  pushHistory('Import points from CSV');
+  setState(draft => {
+    const ds = draft.datasets.find(d => d.id === datasetId);
+    if (ds) ds.points = [...ds.points, ...points];
+  });
+  return points.length;
+}
+
 export function cycleActiveDataset(): void {
   const state = getState();
   if (state.datasets.length === 0) return;

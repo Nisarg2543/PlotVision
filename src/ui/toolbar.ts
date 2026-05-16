@@ -1,5 +1,6 @@
 import { getState, subscribe } from '../state/store';
 import { esc } from '../utils/sanitize';
+import { startTour } from './onboarding';
 import { fitToWindow, zoomBy } from '../modules/canvas-engine';
 import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
@@ -138,6 +139,15 @@ export function initToolbar(container: HTMLElement): void {
     window.open(url, '_blank', 'noopener,noreferrer');
   });
   container.appendChild(feedbackBtn);
+
+  // Tour
+  const tourBtn = mkBtn(`<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>`, 'Tour', 'Take the guided tour');
+  tourBtn.setAttribute('aria-label', 'Take the guided tour');
+  tourBtn.addEventListener('click', () => {
+    localStorage.removeItem('plotvision-onboarded-v1');
+    startTour();
+  });
+  container.appendChild(tourBtn);
 
   // Help
   const helpBtn = mkBtn(I.help, '', 'Keyboard shortcuts (?)');

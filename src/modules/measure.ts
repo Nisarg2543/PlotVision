@@ -6,14 +6,23 @@ export type MeasureMode = 'distance' | 'angle' | 'area';
 
 export interface MeasurePoint { pixelX: number; pixelY: number; dataX: number; dataY: number; }
 
+export interface MeasurementRecord {
+  mode: MeasureMode;
+  result: string;
+  timestamp: number;
+}
+
 let measureMode: MeasureMode = 'distance';
 let measurePoints: MeasurePoint[] = [];
 let active = false;
+const measurementLog: MeasurementRecord[] = [];
 
 export function getMeasureMode(): MeasureMode { return measureMode; }
 export function setMeasureMode(m: MeasureMode): void { measureMode = m; reset(); }
 export function getMeasurePoints(): MeasurePoint[] { return measurePoints; }
 export function isMeasureActive(): boolean { return active; }
+export function getMeasurementLog(): MeasurementRecord[] { return [...measurementLog]; }
+export function clearMeasurementLog(): void { measurementLog.length = 0; }
 
 export function startMeasure(): void {
   active = true;
@@ -42,6 +51,12 @@ export function handleMeasureClick(imgX: number, imgY: number): void {
     measurePoints = [pt]; // restart
   } else {
     measurePoints.push(pt);
+    // Log completed measurements
+    const result = getMeasureResult();
+    if (result) {
+      measurementLog.push({ mode: measureMode, result, timestamp: Date.now() });
+      if (measurementLog.length > 50) measurementLog.shift(); // keep last 50
+    }
   }
   render();
 }
