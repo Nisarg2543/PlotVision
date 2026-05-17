@@ -72,6 +72,25 @@ function setMode(m: ExtractionMode): void {
 export function renderStepData(container: HTMLElement): void {
   const state = getState();
 
+  if (!state.calibration.isComplete) {
+    const hint = makeDiv('');
+    hint.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;';
+    const icon = makeDiv('');
+    icon.style.cssText = 'width:48px;height:48px;border-radius:14px;background:var(--color-accent-dim);display:flex;align-items:center;justify-content:center;';
+    icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`;
+    const title = makeDiv('');
+    title.style.cssText = 'font-size:14px;font-weight:700;color:var(--color-text);text-align:center;';
+    title.textContent = 'Set the scale first';
+    const sub = makeDiv('');
+    sub.style.cssText = 'font-size:12px;color:var(--color-muted);text-align:center;max-width:240px;line-height:1.6;';
+    sub.textContent = 'Go to Step 2 and calibrate the axes before extracting data.';
+    hint.appendChild(icon);
+    hint.appendChild(title);
+    hint.appendChild(sub);
+    container.appendChild(hint);
+    return;
+  }
+
   // Left column: datasets + extraction method picker
   const leftCol = makeDiv('dock-col dock-col-narrow dock-col-border');
   renderDatasetsList(leftCol, state);

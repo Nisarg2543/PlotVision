@@ -9,8 +9,29 @@ import {
 } from '../modules/measure';
 import { exportMeasurements } from '../modules/export';
 import { makeSec, makeDiv, makeRow, makeBtn, makeHint } from './ui-helpers';
+import { getState } from '../state/store';
 
 export function renderStepMeasure(container: HTMLElement): void {
+  const state = getState();
+  if (!state.image.width) {
+    const hint = makeDiv('');
+    hint.style.cssText = 'flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;';
+    const icon = makeDiv('');
+    icon.style.cssText = 'width:48px;height:48px;border-radius:14px;background:var(--color-surface-3);display:flex;align-items:center;justify-content:center;';
+    icon.innerHTML = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--color-muted)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+    const title = makeDiv('');
+    title.style.cssText = 'font-size:14px;font-weight:700;color:var(--color-text);text-align:center;';
+    title.textContent = 'Load a chart first';
+    const sub = makeDiv('');
+    sub.style.cssText = 'font-size:12px;color:var(--color-muted);text-align:center;max-width:240px;line-height:1.6;';
+    sub.textContent = 'Open an image in Step 1, then use the Measure tool (M) to take distance, angle, and area measurements.';
+    hint.appendChild(icon);
+    hint.appendChild(title);
+    hint.appendChild(sub);
+    container.appendChild(hint);
+    return;
+  }
+
   const wrap = document.createElement('div');
   wrap.style.cssText = 'flex:1;display:flex;gap:0;overflow:hidden;';
 
