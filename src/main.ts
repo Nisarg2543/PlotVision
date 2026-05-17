@@ -1,4 +1,16 @@
 import './style.css';
+
+// Lazy error monitoring — only loads when VITE_SENTRY_DSN is set
+if (import.meta.env.VITE_SENTRY_DSN) {
+  import('@sentry/browser').then(Sentry => {
+    Sentry.init({
+      dsn: import.meta.env.VITE_SENTRY_DSN as string,
+      environment: import.meta.env.MODE,
+      tracesSampleRate: 0.1,
+      release: 'plotvision@0.0.0',
+    });
+  });
+}
 import { initCanvas, setCanvasCallbacks } from './modules/canvas-engine';
 import { initImageLoader } from './modules/image-loader';
 import { initToolbar } from './ui/toolbar';
