@@ -3,7 +3,6 @@ import { initCanvas, setCanvasCallbacks } from './modules/canvas-engine';
 import { initImageLoader } from './modules/image-loader';
 import { initToolbar } from './ui/toolbar';
 import { initDock } from './ui/dock';
-import { initPreviewPanel } from './ui/preview-panel';
 import { initKeyboard } from './ui/keyboard';
 import { addDataset } from './modules/datasets';
 import { handleCalibClick, handleCalibDrag } from './modules/calibration';
@@ -62,8 +61,8 @@ function main(): void {
   // Bottom dock (replaces sidebar + left panel)
   initDock();
 
-  // Preview chart panel (subscribes to state; renders into #preview-chart in dock)
-  initPreviewPanel(document.body); // subscribes to state, renders when canvas exists
+  // Preview chart panel — lazy to keep chart.js out of the initial bundle
+  import('./ui/preview-panel').then(({ initPreviewPanel }) => initPreviewPanel(document.body));
 
   // Keyboard shortcuts
   initKeyboard();

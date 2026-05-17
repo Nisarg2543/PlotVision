@@ -44,9 +44,10 @@ import {
   makeSelect, makeIconBtn, makeCheckbox, makeFilterSlider, makeHint, makeLabelWithTip,
 } from './ui-helpers';
 import { trapFocus } from '../utils/modal';
+import { pushHistory } from '../modules/history';
 import type { ExtractionMode } from '../state/types';
 // FitType and CurveFit imported above with datasets
-import { updatePreview } from './preview-panel';
+const triggerPreview = () => import('./preview-panel').then(m => m.updatePreview());
 
 // Module-level state preserved across renders
 let traceExtractionMode: ExtractionMode = 'curve';
@@ -916,7 +917,7 @@ function renderPointsPanel(el: HTMLElement, state: ReturnType<typeof getState>):
     canvasWrap.appendChild(previewCanvas);
     prevSec.appendChild(canvasWrap);
     el.appendChild(prevSec);
-    requestAnimationFrame(() => updatePreview());
+    requestAnimationFrame(() => { void triggerPreview(); });
   }
 }
 
@@ -1089,7 +1090,7 @@ function openPointEditor(datasetId: string, pointId: string, axisType: string): 
     const newXError = isNaN(rawXErr) || rawXErr <= 0 ? undefined : rawXErr;
     const newYError = isNaN(rawYErr) || rawYErr <= 0 ? undefined : rawYErr;
     if (isNaN(newX) || isNaN(newY)) { showToast('X and Y must be valid numbers', 'warning'); return; }
-    import('../modules/history').then(m => m.pushHistory('Edit point'));
+    pushHistory('Edit point');
     setState(d => {
       const dsDraft = d.datasets.find(ds => ds.id === datasetId);
       const ptDraft = dsDraft?.points.find(p => p.id === pointId);
