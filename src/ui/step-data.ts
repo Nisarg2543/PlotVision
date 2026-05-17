@@ -11,7 +11,10 @@ import {
   addDataset, removeDataset, setActiveDataset, toggleDatasetVisibility,
   renameDataset, setDatasetColor, duplicateDataset, sortDatasetPoints,
   clearDatasetPoints, importPointsFromCSV, flagOutliers, clearOutliers, removeOutliers,
+  setDatasetFit, toggleFitVisibility, normalizeDataset,
 } from '../modules/datasets';
+import { runFit, fitEquationString } from '../modules/curve-fitting';
+import type { FitType, CurveFit } from '../state/types';
 import { updatePointData, deletePoint as deleteDataPoint, getPendingBarLabel, confirmBarLabel } from '../modules/digitizer';
 import {
   getAutoTraceSettings, setAutoTraceSettings, runAutoTraceAsync, runXStepTrace,
@@ -42,6 +45,7 @@ import {
 } from './ui-helpers';
 import { trapFocus } from '../utils/modal';
 import type { ExtractionMode } from '../state/types';
+// FitType and CurveFit imported above with datasets
 import { updatePreview } from './preview-panel';
 
 // Module-level state preserved across renders
@@ -792,6 +796,95 @@ function renderPointsPanel(el: HTMLElement, state: ReturnType<typeof getState>):
     }
     statSec.appendChild(outlierRow);
     el.appendChild(statSec);
+
+    // A2: Curve fitting
+    const fitSec = makeSec('Curve Fitting');
+    const existingFit = (activeDs as any).curveFit as CurveFit | undefined;
+
+    const fitTypes: { value: FitType; label: string }[] = [
+      { value: 'linear',      label: 'Linear' },
+      { value: 'exponential', label: 'Exponential' },
+      { value: 'power',       label: 'Power law' },
+      { value: 'polynomial',  label: 'Polynomial' },
+    ];
+    const fitTypeRow = makeRow('start'); fitTypeRow.style.gap = '4px';
+    const fitTypeSel = makeSelect(fitTypes.map(t => [t.value, t.label] as [string, string]),
+      existingFit?.type ?? 'linear');
+    fitTypeSel.style.flex = '1';
+    fitTypeRow.appendChild(fitTypeSel);
+    fitSec.appendChild(fitTypeRow);
+
+    const degRow = makeRow('start'); degRow.style.gap = '6px';
+    const degLbl = makeDiv(''); degLbl.style.cssText = 'font-size:11px;color:var(--color-text-2);white-space:nowrap;';
+    degLbl.textContent = 'Degree:';
+    const degSel = makeSelect(
+      [2,3,4,5].map(n => [String(n), String(n)] as [string, string]),
+      String(existingFit?.degree ?? 2)
+    );
+    degSel.style.width = '64px';
+    degRow.appendChild(degLbl); degRow.appendChild(degSel);
+    fitSec.appendChild(degRow);
+
+    const showDegRow = () => { degRow.style.display = fitTypeSel.value === 'polynomial' ? 'flex' : 'none'; };
+    showDegRow();
+    fitTypeSel.addEventListener('change', showDegRow);
+
+    const fitBtnRow = makeRow('start'); fitBtnRow.style.gap = '6px';
+    const fitBtn = makeBtn('Fit', 'btn btn-primary btn-sm'); fitBtn.style.width = 'auto';
+    const clearFitBtn = makeBtn('Clear', 'btn btn-ghost btn-sm'); clearFitBtn.style.width = 'auto';
+    fitBtnRow.appendChild(fitBtn); fitBtnRow.appendChild(clearFitBtn);
+    fitSec.appendChild(fitBtnRow);
+
+    const fitResultEl = makeDiv('');
+    fitResultEl.style.cssText = 'font-size:11px;font-family:var(--font-mono);color:var(--color-text-2);background:var(--color-surface-3);border:1px solid var(--color-border);border-radius:7px;padding:7px 10px;line-height:1.7;';
+    if (existingFit) {
+      fitResultEl.innerHTML = `<strong>${fitEquationString(existingFit)}</strong><br>R² = ${existingFit.r2.toFixed(4)}`;
+    } else {
+      fitResultEl.style.display = 'none';
+    }
+    fitSec.appendChild(fitResultEl);
+
+    if (existingFit) {
+      const visRow = makeRow('start'); visRow.style.gap = '6px';
+      const visBtn = makeBtn(existingFit.visible ? 'Hide fit curve' : 'Show fit curve', 'btn btn-ghost btn-sm');
+      visBtn.style.width = 'auto';
+      visBtn.addEventListener('click', () => toggleFitVisibility(activeDs.id));
+      visRow.appendChild(visBtn);
+      fitSec.appendChild(visRow);
+    }
+
+    fitBtn.addEventListener('click', () => {
+      const xs = activeDs.points.map(p => p.dataX);
+      const ys = activeDs.points.map(p => p.dataY);
+      const type = fitTypeSel.value as FitType;
+      const degree = parseInt(degSel.value, 10);
+      const result = runFit(xs, ys, type, degree);
+      if (!result) {
+        showToast('Fit failed — check data requirements (e.g. all Y > 0 for exponential)', 'warning');
+        return;
+      }
+      setDatasetFit(activeDs.id, result);
+      fitResultEl.style.display = '';
+      fitResultEl.innerHTML = `<strong>${fitEquationString(result)}</strong><br>R² = ${result.r2.toFixed(4)}`;
+    });
+    clearFitBtn.addEventListener('click', () => { setDatasetFit(activeDs.id, null); fitResultEl.style.display = 'none'; });
+
+    el.appendChild(fitSec);
+
+    // A3: Normalization
+    const normSec = makeSec('Normalize');
+    const normRow = makeRow('start'); normRow.style.gap = '6px';
+    const normSel = makeSelect(
+      [['minmax', 'Min-Max (0–1)'], ['zscore', 'Z-score']] as [string, string][],
+      'minmax'
+    );
+    normSel.style.flex = '1';
+    const normBtn = makeBtn('Create normalized copy', 'btn btn-ghost btn-sm'); normBtn.style.width = 'auto';
+    normBtn.addEventListener('click', () => normalizeDataset(activeDs.id, normSel.value as 'minmax' | 'zscore'));
+    normRow.appendChild(normSel); normRow.appendChild(normBtn);
+    normSec.appendChild(normRow);
+    normSec.appendChild(makeHint('Creates a new series with scaled values. Original data is preserved.'));
+    el.appendChild(normSec);
   }
 
   // Image filters (collapsed/compact in right panel)
@@ -940,10 +1033,12 @@ function openPointEditor(datasetId: string, pointId: string, axisType: string): 
   const [colX, colY] = getAxisColumnLabels(axisType);
   const xEditable = axisType !== 'bar-chart' && axisType !== 'date-x';
 
-  const fields: { label: string; value: string; key: 'x' | 'y' | 'label'; editable: boolean }[] = [
-    { label: colX, value: String(pt.dataX), key: 'x', editable: xEditable },
-    { label: colY, value: String(pt.dataY), key: 'y', editable: true },
-    { label: 'Label', value: pt.label ?? '', key: 'label', editable: true },
+  const fields: { label: string; value: string; key: string; editable: boolean; type: string }[] = [
+    { label: colX, value: String(pt.dataX), key: 'x', editable: xEditable, type: 'number' },
+    { label: colY, value: String(pt.dataY), key: 'y', editable: true, type: 'number' },
+    { label: `± ${colX} error`, value: String(pt.xError ?? ''), key: 'xError', editable: true, type: 'number' },
+    { label: `± ${colY} error`, value: String(pt.yError ?? ''), key: 'yError', editable: true, type: 'number' },
+    { label: 'Label', value: pt.label ?? '', key: 'label', editable: true, type: 'text' },
   ];
 
   const inputs: Record<string, HTMLInputElement> = {};
@@ -953,9 +1048,10 @@ function openPointEditor(datasetId: string, pointId: string, axisType: string): 
     lbl.textContent = f.label;
     const inp = document.createElement('input');
     inp.className = 'pv-input';
-    inp.type = f.key === 'label' ? 'text' : 'number';
+    inp.type = f.type;
     inp.value = f.value;
     inp.disabled = !f.editable;
+    if (f.type === 'number' && f.key.includes('error')) inp.min = '0';
     if (!f.editable) inp.style.opacity = '0.5';
     inp.addEventListener('keydown', e => { if (e.key === 'Escape') modal.remove(); if (e.key === 'Enter') doSave(); });
     box.appendChild(lbl);
@@ -988,12 +1084,19 @@ function openPointEditor(datasetId: string, pointId: string, axisType: string): 
     const newX = xEditable ? parseFloat(inputs.x.value) : pt!.dataX;
     const newY = parseFloat(inputs.y.value);
     const newLabel = inputs.label.value.trim() || undefined;
+    const rawXErr = parseFloat(inputs.xError.value);
+    const rawYErr = parseFloat(inputs.yError.value);
+    const newXError = isNaN(rawXErr) || rawXErr <= 0 ? undefined : rawXErr;
+    const newYError = isNaN(rawYErr) || rawYErr <= 0 ? undefined : rawYErr;
     if (isNaN(newX) || isNaN(newY)) { showToast('X and Y must be valid numbers', 'warning'); return; }
     import('../modules/history').then(m => m.pushHistory('Edit point'));
     setState(d => {
       const dsDraft = d.datasets.find(ds => ds.id === datasetId);
       const ptDraft = dsDraft?.points.find(p => p.id === pointId);
-      if (ptDraft) { ptDraft.dataX = newX; ptDraft.dataY = newY; ptDraft.label = newLabel; }
+      if (ptDraft) {
+        ptDraft.dataX = newX; ptDraft.dataY = newY; ptDraft.label = newLabel;
+        ptDraft.xError = newXError; ptDraft.yError = newYError;
+      }
     });
     modal.remove();
     showToast('Point updated', 'success');

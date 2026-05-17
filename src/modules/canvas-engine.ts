@@ -6,6 +6,7 @@ import { showToast } from '../utils/toast';
 import { drawMeasureOverlay, handleMeasureClick, isMeasureActive } from './measure';
 import { drawStripOverlays, getStrips } from './strip-chart';
 import { pickColorAtPixel, setAutoTraceSettings } from './auto-trace';
+import { fitPoints } from './curve-fitting';
 import type { Dataset, DataPoint, CalibrationPoint } from '../state/types';
 
 // ImageBitmap stored here — cannot be structuredCloned
@@ -242,11 +243,13 @@ function renderFrame(): void {
   // Calibration points
   drawCalibPoints(state.calibration.points, zoom, panX, panY);
 
-  // Dataset points
+  // Dataset points + error bars + curve fits
   for (const ds of state.datasets) {
     if (!ds.visible) continue;
     drawDatasetPoints(ds, zoom, panX, panY, state.calibration.transform);
+    drawErrorBars(ds, zoom, panX, panY, state.calibration.transform, state.calibration.axisType);
   }
+  drawCurveFits(state.datasets, zoom, panX, panY, state.calibration.transform, state.calibration.axisType);
 
   // Auto-trace preview overlay
   drawAutoTracePreview(zoom, panX, panY);
@@ -698,6 +701,101 @@ function drawDatasetPoints(
       ctx.fillStyle = '#09090b';
       ctx.fillText(text, tx, ty);
     }
+  }
+}
+
+function drawErrorBars(
+  ds: Dataset, zoom: number, panX: number, panY: number,
+  transform: ReturnType<typeof getState>['calibration']['transform'],
+  axisType: string
+): void {
+  if (!transform) return;
+  const isLinear = axisType === 'xy-linear';
+  const isLogX = axisType === 'xy-log-x' || axisType === 'xy-log-xy';
+  const isLogY = axisType === 'xy-log-y' || axisType === 'xy-log-xy';
+  if (!isLinear && !isLogX && !isLogY) return;
+
+  ctx.strokeStyle = ds.color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([]);
+  const CAP = 4;
+
+  for (const pt of ds.points) {
+    const { canvasX, canvasY } = imageToCanvas(pt.pixelX, pt.pixelY, zoom, panX, panY);
+
+    if (pt.xError && pt.xError > 0) {
+      let pxLo: number, pxHi: number;
+      if (isLogX && pt.dataX > 0) {
+        const { pixelX: lo } = logDataToPixel(Math.max(1e-300, pt.dataX - pt.xError), pt.dataY, transform, true, false);
+        const { pixelX: hi } = logDataToPixel(pt.dataX + pt.xError, pt.dataY, transform, true, false);
+        pxLo = lo; pxHi = hi;
+      } else {
+        const scaleX = (transform.x2px - transform.x1px) / (transform.x2Data - transform.x1Data);
+        pxLo = pt.pixelX - pt.xError * scaleX;
+        pxHi = pt.pixelX + pt.xError * scaleX;
+      }
+      const { canvasX: cx1 } = imageToCanvas(pxLo, pt.pixelY, zoom, panX, panY);
+      const { canvasX: cx2 } = imageToCanvas(pxHi, pt.pixelY, zoom, panX, panY);
+      ctx.beginPath(); ctx.moveTo(cx1, canvasY); ctx.lineTo(cx2, canvasY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx1, canvasY - CAP); ctx.lineTo(cx1, canvasY + CAP); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx2, canvasY - CAP); ctx.lineTo(cx2, canvasY + CAP); ctx.stroke();
+    }
+
+    if (pt.yError && pt.yError > 0) {
+      let pyLo: number, pyHi: number;
+      if (isLogY && pt.dataY > 0) {
+        const { pixelY: lo } = logDataToPixel(pt.dataX, Math.max(1e-300, pt.dataY - pt.yError), transform, false, true);
+        const { pixelY: hi } = logDataToPixel(pt.dataX, pt.dataY + pt.yError, transform, false, true);
+        pyLo = hi; pyHi = lo; // pixel Y is inverted vs data Y
+      } else {
+        const scaleY = (transform.y2py - transform.y1py) / (transform.y2Data - transform.y1Data);
+        pyLo = pt.pixelY + pt.yError * scaleY; // +scaleY because pixel Y increases downward
+        pyHi = pt.pixelY - pt.yError * scaleY;
+      }
+      const { canvasY: cy1 } = imageToCanvas(pt.pixelX, pyLo, zoom, panX, panY);
+      const { canvasY: cy2 } = imageToCanvas(pt.pixelX, pyHi, zoom, panX, panY);
+      ctx.beginPath(); ctx.moveTo(canvasX, cy1); ctx.lineTo(canvasX, cy2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(canvasX - CAP, cy1); ctx.lineTo(canvasX + CAP, cy1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(canvasX - CAP, cy2); ctx.lineTo(canvasX + CAP, cy2); ctx.stroke();
+    }
+  }
+}
+
+function drawCurveFits(
+  datasets: Dataset[], zoom: number, panX: number, panY: number,
+  transform: ReturnType<typeof getState>['calibration']['transform'],
+  axisType: string
+): void {
+  if (!transform) return;
+  const supported = axisType === 'xy-linear' || axisType.startsWith('xy-log');
+  if (!supported) return;
+  const logX = axisType === 'xy-log-x' || axisType === 'xy-log-xy';
+  const logY = axisType === 'xy-log-y' || axisType === 'xy-log-xy';
+
+  for (const ds of datasets) {
+    const fit = (ds as any).curveFit;
+    if (!fit || !fit.visible || !ds.visible || ds.points.length < 2) continue;
+
+    const xs = ds.points.map((p: DataPoint) => p.dataX);
+    const xMin = Math.min(...xs), xMax = Math.max(...xs);
+    const pts = fitPoints(fit, xMin, xMax, 300);
+    if (pts.length < 2) continue;
+
+    ctx.save();
+    ctx.strokeStyle = ds.color;
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([5, 4]);
+    ctx.globalAlpha = 0.75;
+    ctx.beginPath();
+    let first = true;
+    for (const { x, y } of pts) {
+      const dp = logX || logY ? logDataToPixel(x, y, transform, logX, logY) : linearDataToPixel(x, y, transform);
+      const { canvasX, canvasY } = imageToCanvas(dp.pixelX, dp.pixelY, zoom, panX, panY);
+      if (first) { ctx.moveTo(canvasX, canvasY); first = false; }
+      else ctx.lineTo(canvasX, canvasY);
+    }
+    ctx.stroke();
+    ctx.restore();
   }
 }
 

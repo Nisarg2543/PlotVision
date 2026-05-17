@@ -51,6 +51,18 @@ export interface DataPoint {
   dataY: number;
   label?: string;
   outlier?: boolean;
+  xError?: number;
+  yError?: number;
+}
+
+export type FitType = 'linear' | 'exponential' | 'power' | 'polynomial';
+
+export interface CurveFit {
+  type: FitType;
+  degree?: number;
+  params: number[];
+  r2: number;
+  visible: boolean;
 }
 
 export interface Dataset {
@@ -59,6 +71,12 @@ export interface Dataset {
   color: string;
   visible: boolean;
   points: DataPoint[];
+  curveFit?: CurveFit;
+}
+
+export interface ReferenceSession {
+  label: string;
+  datasets: Dataset[];
 }
 
 export interface HistoryEntry {
@@ -121,6 +139,7 @@ export interface AppState {
     currentPage: number;
     totalPages: number;
   };
+  reference?: ReferenceSession;
   canvas: {
     zoom: number;
     panX: number;

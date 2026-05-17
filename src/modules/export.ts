@@ -65,6 +65,11 @@ export function exportCSV(datasetId?: string): void {
   const opts = state.exportOptions;
   const axisType = state.calibration.axisType;
 
+  // Detect error bar columns (only for standard XY-like axes)
+  const isStandardXY = !['polar','log-polar','ternary','date-x','bar-chart','circular'].includes(axisType);
+  const hasXErr = isStandardXY && datasets.some(d => d.points.some(p => (p as any).xError));
+  const hasYErr = isStandardXY && datasets.some(d => d.points.some(p => (p as any).yError));
+
   // Build axis-specific header
   let header: string;
   if (axisType === 'polar' || axisType === 'log-polar') header = 'Dataset,r,theta_deg';
@@ -75,7 +80,8 @@ export function exportCSV(datasetId?: string): void {
   else {
     const hasLabels = datasets.some(d => d.points.some(p => p.label));
     const isPie = hasLabels && datasets.every(d => d.points.every(p => p.label));
-    header = isPie ? 'Dataset,Sector,Angle(deg),Value' : hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y';
+    const base = isPie ? 'Dataset,Sector,Angle(deg),Value' : hasLabels ? 'Dataset,Label,X,Y' : 'Dataset,X,Y';
+    header = base + (hasXErr ? ',X_err' : '') + (hasYErr ? ',Y_err' : '');
   }
 
   const lines: string[] = [header];
@@ -99,9 +105,12 @@ export function exportCSV(datasetId?: string): void {
         // standard / pie / labeled
         const hasLabels = header.includes('Label') || header.includes('Sector');
         const label = `"${(pt.label ?? '').replace(/"/g, '""')}"`;
-        row = hasLabels
+        const base = hasLabels
           ? `${name},${label},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)}`
           : `${name},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)}`;
+        const xe = hasXErr ? `,${(pt as any).xError != null ? (pt as any).xError : ''}` : '';
+        const ye = hasYErr ? `,${(pt as any).yError != null ? (pt as any).yError : ''}` : '';
+        row = base + xe + ye;
       }
       lines.push(row);
     }
@@ -397,4 +406,34 @@ export async function exportPNGOverlay(): Promise<void> {
     downloadBlob(blob, `${filename}-overlay.png`);
     showToast('PNG with points exported', 'success');
   }, 'image/png');
+}
+
+// ── Comparison export (A4) ────────────────────────────────────────────────────
+
+export function exportComparison(): void {
+  const state = getState();
+  if (!state.reference) { showToast('No reference saved — use Compare → Save as Reference first', 'warning'); return; }
+  const opts = state.exportOptions;
+  const refLabel = state.reference.label || 'Reference';
+  const curLabel = state.image.filename.replace(/\.[^.]+$/, '') || 'Current';
+
+  const lines: string[] = ['Source,Dataset,X,Y'];
+  const allSources: { src: string; datasets: Dataset[] }[] = [
+    { src: refLabel, datasets: state.reference.datasets },
+    { src: curLabel, datasets: state.datasets },
+  ];
+  for (const { src, datasets } of allSources) {
+    for (const ds of datasets) {
+      const sorted = sortPoints(ds.points, opts.sort);
+      for (const pt of sorted) {
+        const srcQ = `"${src.replace(/"/g, '""')}"`;
+        const dsQ  = `"${ds.name.replace(/"/g, '""')}"`;
+        lines.push(`${srcQ},${dsQ},${formatNum(pt.dataX, opts)},${formatNum(pt.dataY, opts)}`);
+      }
+    }
+  }
+
+  const filename = `${curLabel}-comparison`;
+  downloadText(lines.join('\n'), `${filename}.csv`, 'text/csv');
+  showToast('Comparison CSV exported', 'success');
 }

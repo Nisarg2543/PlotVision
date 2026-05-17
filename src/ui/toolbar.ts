@@ -1,11 +1,11 @@
-import { getState, subscribe } from '../state/store';
+import { getState, setState, subscribe } from '../state/store';
 import { esc } from '../utils/sanitize';
 import { startTour } from './onboarding';
 import { fitToWindow, zoomBy } from '../modules/canvas-engine';
 import { undo, redo, canUndo, canRedo } from '../modules/history';
 import { openFilePicker } from '../modules/image-loader';
 import { saveProject, openProjectPicker } from '../modules/project';
-import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX, exportPlotly, exportProjectTar, exportSVG, exportPNGOverlay } from '../modules/export';
+import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX, exportPlotly, exportProjectTar, exportSVG, exportPNGOverlay, exportComparison } from '../modules/export';
 import { openBatchPicker, isBatchActive, markCurrentDone, skipCurrent, getQueue, getCurrentIndex } from '../modules/batch';
 import { Icons } from './icons';
 import { trapFocus } from '../utils/modal';
@@ -103,6 +103,12 @@ export function initToolbar(container: HTMLElement): void {
   spacer.className = 'tb-spacer';
   container.appendChild(spacer);
 
+  // Compare / Reference
+  const compareBtn = mkBtn(Icons.compare, 'Compare', 'Save or load a reference session for comparison');
+  compareBtn.id = 'tb-compare';
+  compareBtn.addEventListener('click', openCompareMenu);
+  container.appendChild(compareBtn);
+
   // Export — accent button
   const exportBtn = mkBtn(Icons.download + Icons.chevronDown, 'Export', 'Export data', 'tb-btn-accent');
   exportBtn.addEventListener('click', openExportModal);
@@ -183,6 +189,7 @@ function openExportModal(): void {
   const btnWrap = document.createElement('div');
   btnWrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;padding:12px 18px 16px;';
 
+  const hasReference = !!getState().reference;
   const rows: { label: string; sub: string; action: () => void; disabled?: boolean }[] = [
     { label: 'CSV — All series',      sub: `${totalPoints} points across all series`,         action: () => exportCSV() },
     { label: 'CSV — Active series',   sub: activeDs ? `"${esc(activeDs.name)}" · ${activeDs.points.length} pts` : 'No series selected', action: () => activeDs ? exportCSV(activeDs.id) : undefined, disabled: !activeDs },
@@ -193,6 +200,7 @@ function openExportModal(): void {
     { label: 'Plotly HTML',           sub: 'Interactive chart — open in any browser',         action: () => exportPlotly() },
     { label: 'SVG',                   sub: 'Points as vector graphics (pixel coordinates)',   action: () => exportSVG() },
     { label: 'PNG with points',       sub: 'Original image + all points drawn on top',        action: () => void exportPNGOverlay() },
+    { label: 'CSV — With reference',  sub: hasReference ? 'Current + saved reference, with Source column' : 'Save a reference first via Compare', action: () => exportComparison(), disabled: !hasReference },
     { label: 'Project bundle (.tar)', sub: 'Image + calibration + all data bundled',          action: () => void exportProjectTar() },
   ];
 
@@ -297,4 +305,75 @@ function buildShortcutsModal(): void {
   shortcutsModal.addEventListener('click', e => { if (e.target === shortcutsModal) closeShortcuts(); });
   // Set up Escape key trap once (modal reuses same DOM)
   shortcutsModal.addEventListener('keydown', e => { if (e.key === 'Escape') closeShortcuts(); }, { capture: true });
+}
+
+function openCompareMenu(): void {
+  const state = getState();
+  const hasRef = !!state.reference;
+  const btn = document.getElementById('tb-compare') as HTMLElement;
+
+  // Remove any existing dropdown
+  document.querySelector('.compare-dropdown')?.remove();
+
+  const drop = document.createElement('div');
+  drop.className = 'dropdown compare-dropdown';
+  drop.style.cssText = 'position:fixed;z-index:500;min-width:240px;';
+
+  const rect = btn.getBoundingClientRect();
+  drop.style.left = `${rect.left}px`;
+  drop.style.top  = `${rect.bottom + 4}px`;
+
+  const items: { label: string; sub: string; action: () => void; destructive?: boolean }[] = [
+    {
+      label: 'Save as Reference',
+      sub: `${state.datasets.length} series → save as Image A`,
+      action: () => {
+        setState(d => {
+          d.reference = {
+            label: state.image.filename || 'Reference',
+            datasets: JSON.parse(JSON.stringify(state.datasets)),
+          };
+        });
+        import('../utils/toast').then(m => m.showToast('Reference saved — load a new image for Image B', 'success', 4000));
+        drop.remove();
+      },
+    },
+    ...(hasRef ? [{
+      label: 'Clear reference',
+      sub: `Currently saved: "${state.reference!.label}"`,
+      action: () => {
+        setState(d => { d.reference = undefined; });
+        import('../utils/toast').then(m => m.showToast('Reference cleared', 'info'));
+        drop.remove();
+      },
+      destructive: true,
+    }] : []),
+    {
+      label: 'Export with reference (CSV)',
+      sub: hasRef ? 'Combines current + reference with Source column' : 'Save a reference first',
+      action: () => { exportComparison(); drop.remove(); },
+    },
+  ];
+
+  for (const item of items) {
+    const el = document.createElement('div');
+    el.style.cssText = `padding:9px 13px;cursor:pointer;${item.destructive ? 'color:var(--color-error);' : ''}`;
+    el.innerHTML = `
+      <div style="font-size:12px;font-weight:600;color:${item.destructive ? 'var(--color-error)' : 'var(--color-text)'};">${item.label}</div>
+      <div style="font-size:10px;color:var(--color-muted);">${item.sub}</div>
+    `;
+    el.addEventListener('mouseenter', () => { el.style.background = 'var(--color-faint)'; });
+    el.addEventListener('mouseleave', () => { el.style.background = ''; });
+    el.addEventListener('click', item.action);
+    drop.appendChild(el);
+  }
+
+  document.body.appendChild(drop);
+  const close = (e: MouseEvent) => {
+    if (!drop.contains(e.target as Node) && e.target !== btn) {
+      drop.remove();
+      document.removeEventListener('click', close, true);
+    }
+  };
+  setTimeout(() => document.addEventListener('click', close, true), 10);
 }

@@ -3,7 +3,7 @@ import { pushHistory } from './history';
 import { showToast } from '../utils/toast';
 import { showConfirm } from '../utils/confirm';
 import { uid } from '../utils/math';
-import type { Dataset } from '../state/types';
+import type { Dataset, CurveFit } from '../state/types';
 
 // Perceptually distinct colors visible on both light and dark backgrounds
 const PALETTE = [
@@ -216,4 +216,61 @@ export function cycleActiveDataset(): void {
   const idx = state.datasets.findIndex(d => d.id === state.activeDatasetId);
   const next = state.datasets[(idx + 1) % state.datasets.length];
   setState(draft => { draft.activeDatasetId = next.id; });
+}
+
+export function setDatasetFit(datasetId: string, fit: CurveFit | null): void {
+  pushHistory('Set curve fit');
+  setState(draft => {
+    const ds = draft.datasets.find(d => d.id === datasetId);
+    if (ds) (ds as any).curveFit = fit ?? undefined;
+  });
+}
+
+export function toggleFitVisibility(datasetId: string): void {
+  setState(draft => {
+    const ds = draft.datasets.find(d => d.id === datasetId) as any;
+    if (ds?.curveFit) ds.curveFit.visible = !ds.curveFit.visible;
+  });
+}
+
+export function normalizeDataset(datasetId: string, mode: 'minmax' | 'zscore'): void {
+  const state = getState();
+  const ds = state.datasets.find(d => d.id === datasetId);
+  if (!ds || ds.points.length < 2) return;
+
+  const xs = ds.points.map(p => p.dataX);
+  const ys = ds.points.map(p => p.dataY);
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const xMean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const yMean = ys.reduce((a, b) => a + b, 0) / ys.length;
+  const xStd = Math.sqrt(xs.reduce((s, v) => s + (v - xMean) ** 2, 0) / xs.length) || 1;
+  const yStd = Math.sqrt(ys.reduce((s, v) => s + (v - yMean) ** 2, 0) / ys.length) || 1;
+
+  const newId = uid();
+  const newPts = ds.points.map(p => {
+    let nx = p.dataX, ny = p.dataY;
+    if (mode === 'minmax') {
+      nx = xMax !== xMin ? (p.dataX - xMin) / (xMax - xMin) : 0;
+      ny = yMax !== yMin ? (p.dataY - yMin) / (yMax - yMin) : 0;
+    } else {
+      nx = (p.dataX - xMean) / xStd;
+      ny = (p.dataY - yMean) / yStd;
+    }
+    return { ...p, id: uid(), dataX: nx, dataY: ny };
+  });
+
+  const suffix = mode === 'minmax' ? '(min-max)' : '(z-score)';
+  pushHistory('Normalize dataset');
+  setState(draft => {
+    draft.datasets.push({
+      id: newId,
+      name: `${ds.name} ${suffix}`,
+      color: ds.color,
+      visible: true,
+      points: newPts,
+    });
+    draft.activeDatasetId = newId;
+  });
+  showToast(`Created normalized series "${ds.name} ${suffix}"`, 'success');
 }
