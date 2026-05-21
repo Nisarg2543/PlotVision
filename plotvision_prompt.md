@@ -367,8 +367,8 @@ Steps:
 15. **Project save/load** — .pvz file format
 16. **Keyboard shortcuts** — full map implementation
 17. **Onboarding tour** — first-time user flow
-18. **AI Assist mode** — API key input, vision model integration
-19. **Polish pass** — animations, toast notifications, empty states, error handling
+18. **[DONE] AI Assist mode** — API key input, vision model integration
+19. **[DONE] Polish pass** — animations, toast notifications, empty states, error handling
 
 ---
 

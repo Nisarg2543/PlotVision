@@ -71,6 +71,7 @@ History snapshots (`src/modules/history.ts`) capture: `datasets`, `calibration`,
 | `perspective.ts` | 4-corner homography warp (DLT + Gaussian elimination). Bridges via `window.__perspectiveMod` |
 | `roi.ts` | Region of Interest bounding box. Stored in `AppState.canvas.roi`; clamps `buildColorMask` |
 | `auto-detect.ts` | Chart type heuristics from image pixels (bar/pie/scatter/line) |
+| `ai-assist.ts` | OpenAI/Gemini Vision API integration for smart auto-detect and data extraction |
 | `image-filters.ts` | Pixel-level filters: threshold, sharpen, denoise, autoContrast, gridRemoval |
 | `image-loader.ts` | Drag-drop, paste, file picker, PDF.js rendering. `destroyImageLoader()` removes listeners |
 | `datasets.ts` | Dataset CRUD, color palette, sort, duplicate, outlier detection, normalization, curve fit storage |
