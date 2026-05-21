@@ -9,6 +9,7 @@ import { exportCSV, exportExcel, exportJSON, exportClipboard, exportLaTeX, expor
 import { openBatchPicker, isBatchActive, markCurrentDone, skipCurrent, getQueue, getCurrentIndex } from '../modules/batch';
 import { Icons } from './icons';
 import { trapFocus } from '../utils/modal';
+import { openSettingsModal } from './settings-modal';
 
 function mkBtn(inner: string, label: string, title: string, cls = ''): HTMLButtonElement {
   const b = document.createElement('button');
@@ -153,6 +154,14 @@ export function initToolbar(container: HTMLElement): void {
     (document.getElementById('shortcuts-modal') as HTMLElement).style.display = 'flex';
   });
   container.appendChild(helpBtn);
+
+  // Settings
+  const settingsBtn = mkBtn(Icons.settings, '', 'Settings');
+  settingsBtn.setAttribute('aria-label', 'Settings');
+  settingsBtn.addEventListener('click', () => {
+    openSettingsModal();
+  });
+  container.appendChild(settingsBtn);
 
   // Keep undo/redo synced with state
   const syncUndoRedo = () => {

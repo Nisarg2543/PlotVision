@@ -29,6 +29,7 @@ function createInitialState(): AppState {
     historyIndex: -1,
     ui: { previewMode: 'scatter' },
     exportOptions: { precision: 'auto', digits: 6, sort: 'none', dateFmt: 'yyyy-mm-dd HH:ii:ss' },
+    ai: { apiKey: '', provider: 'openai' },
   };
 }
 

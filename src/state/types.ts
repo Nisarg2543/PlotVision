@@ -120,7 +120,7 @@ export interface ExportOptions {
   dateFmt: string;  // e.g. 'yyyy-mm-dd HH:ii:ss'
 }
 
-export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie' | 'template' | 'strip-chart';
+export type ExtractionMode = 'curve' | 'bar' | 'scatter' | 'pie' | 'template' | 'strip-chart' | 'ai';
 
 export interface CalibrationState {
   axisType: AxisType;
@@ -157,4 +157,8 @@ export interface AppState {
     previewMode: 'scatter' | 'line' | 'bar';
   };
   exportOptions: ExportOptions;
+  ai: {
+    apiKey: string;
+    provider: 'openai' | 'gemini';
+  };
 }

@@ -14,6 +14,7 @@ import {
   setDatasetFit, toggleFitVisibility, normalizeDataset,
 } from '../modules/datasets';
 import { runFit, fitEquationString } from '../modules/curve-fitting';
+import { uid } from '../utils/math';
 import type { FitType, CurveFit } from '../state/types';
 import { updatePointData, deletePoint as deleteDataPoint, getPendingBarLabel, confirmBarLabel } from '../modules/digitizer';
 import {
@@ -195,6 +196,7 @@ const METHODS: { id: ExtractionMode; icon: string; label: string; sub: string }[
   { id: 'pie',        icon: Icons.pieChart,  label: 'Pie Chart',         sub: 'Click sector boundaries' },
   { id: 'template',   icon: Icons.stamp,     label: 'Find Symbols',      sub: 'Copy a marker, find all' },
   { id: 'strip-chart',icon: Icons.strips,    label: 'Multi-Panel',       sub: 'Strip/ECG charts' },
+  { id: 'ai',         icon: '✨',             label: 'AI Extract',        sub: 'Extract all data automatically' },
 ];
 
 function renderMethodPicker(el: HTMLElement): void {
@@ -255,6 +257,10 @@ function renderMethodSettings(el: HTMLElement, state: ReturnType<typeof getState
   }
   if (traceExtractionMode === 'strip-chart') {
     renderStripWizard(el);
+    return;
+  }
+  if (traceExtractionMode === 'ai') {
+    renderAIExtractWizard(el);
     return;
   }
 
@@ -645,9 +651,57 @@ function renderStripWizard(el: HTMLElement): void {
     clearBtn.style.width = 'auto';
     clearBtn.addEventListener('click', clearStrips);
     actRow.appendChild(traceAllBtn); actRow.appendChild(clearBtn);
-    listSec.appendChild(actRow);
+      listSec.appendChild(actRow);
     el.appendChild(listSec);
   }
+}
+
+// ── AI Extract wizard ──────────────────────────────────────────
+
+function renderAIExtractWizard(el: HTMLElement): void {
+  const sec = makeSec('✨ AI Assist');
+  sec.appendChild(makeHint('Automatically extract all visible data series using AI.'));
+  
+  const extractBtn = makeBtn('Extract All Data', 'btn btn-primary');
+  extractBtn.addEventListener('click', async () => {
+    if (!getState().ai.apiKey) {
+      import('../utils/toast').then(m => m.showToast('Please configure AI API Key in Settings first', 'warning'));
+      return;
+    }
+    import('./loading-overlay').then(m => m.showLoading('Extracting data with AI...'));
+    try {
+      const { aiExtractAllData } = await import('../modules/ai-assist');
+      const res = await aiExtractAllData();
+      
+      setState(d => {
+        res.series.forEach(s => {
+          const dsId = uid();
+          d.datasets.push({
+            id: dsId,
+            name: s.name || 'AI Series',
+            color: s.color || '#6366f1',
+            visible: true,
+            points: s.points.map(p => ({
+              id: uid(),
+              pixelX: 0,
+              pixelY: 0,
+              dataX: p.dataX,
+              dataY: p.dataY
+            }))
+          });
+          d.activeDatasetId = dsId;
+        });
+      });
+      import('../utils/toast').then(m => m.showToast(`Extracted ${res.series.length} series`, 'success'));
+    } catch (e: any) {
+      import('../utils/toast').then(m => m.showToast(e.message, 'error'));
+    } finally {
+      import('./loading-overlay').then(m => m.hideLoading());
+    }
+  });
+  
+  sec.appendChild(extractBtn);
+  el.appendChild(sec);
 }
 
 // ── Points panel (right column) ────────────────────────────────

@@ -216,7 +216,7 @@ export function handleCalibValueConfirm(role: CalibrationPoint['role'], valueStr
   }
 }
 
-function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null {
+export function buildTransform(points: CalibrationPoint[]): CoordinateTransform | null {
   const x1 = points.find(p => p.role === 'x1');
   const x2 = points.find(p => p.role === 'x2');
   const y1 = points.find(p => p.role === 'y1');

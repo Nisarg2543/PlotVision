@@ -100,6 +100,43 @@ export function renderStepScale(container: HTMLElement): void {
     const startBtn = makeBtn('Start Setting Scale →', 'btn btn-primary');
     startBtn.addEventListener('click', startCalibration);
     leftCol.appendChild(startBtn);
+
+    const aiBtn = makeBtn('✨ AI Auto-Detect', 'btn btn-ghost btn-sm');
+    aiBtn.style.marginTop = '8px';
+    aiBtn.addEventListener('click', async () => {
+      if (!getState().ai.apiKey) {
+        import('../utils/toast').then(m => m.showToast('Please configure AI API Key in Settings first', 'warning'));
+        return;
+      }
+      import('./loading-overlay').then(m => m.showLoading('Analyzing chart with AI...'));
+      try {
+        const { smartAutoDetect } = await import('../modules/ai-assist');
+        const res = await smartAutoDetect();
+        setState(d => {
+          d.calibration.axisType = res.axisType;
+          d.calibration.points = res.calibrationPoints.map(p => ({ ...p, id: crypto.randomUUID() }));
+          d.calibration.step = 'complete';
+          d.calibration.isComplete = true;
+          d.activeTool = 'pointer';
+        });
+        
+        import('../modules/calibration').then(calib => {
+          const t = calib.buildTransform(getState().calibration.points);
+          if (t) {
+            setState(d => { d.calibration.transform = t; });
+            import('../utils/toast').then(m => m.showToast('Calibration auto-detected!', 'success'));
+          } else {
+            import('../utils/toast').then(m => m.showToast('AI provided invalid calibration data', 'error'));
+            calib.resetCalibration();
+          }
+        });
+      } catch (e: any) {
+        import('../utils/toast').then(m => m.showToast(e.message, 'error'));
+      } finally {
+        import('./loading-overlay').then(m => m.hideLoading());
+      }
+    });
+    leftCol.appendChild(aiBtn);
   }
 
   container.appendChild(leftCol);
