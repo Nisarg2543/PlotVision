@@ -7,6 +7,7 @@ import { drawMeasureOverlay, handleMeasureClick, isMeasureActive } from './measu
 import { drawStripOverlays, getStrips } from './strip-chart';
 import { pickColorAtPixel, setAutoTraceSettings } from './auto-trace';
 import { fitPoints } from './curve-fitting';
+import { pushHistory } from './history';
 import type { Dataset, DataPoint, CalibrationPoint } from '../state/types';
 
 // ImageBitmap stored here — cannot be structuredCloned
@@ -83,6 +84,7 @@ let deletePopoverTarget: { datasetId: string; pointId: string } | null = null;
 
 // RoI drag state
 let isDrawingRoi = false;
+let isErasing = false;
 let roiStartImgX = 0, roiStartImgY = 0;
 
 // Touch interaction state
@@ -283,6 +285,9 @@ function renderFrame(): void {
   overlayCtx.clearRect(0, 0, overlayCanvas.clientWidth, overlayCanvas.clientHeight);
   if (bitmap) {
     drawCrosshair(mouseCanvasX, mouseCanvasY, overlayCanvas.clientWidth, overlayCanvas.clientHeight);
+    if (state.canvas.loupeEnabled && ['pointer', 'add-point', 'calibrate', 'eraser', 'roi'].includes(state.activeTool)) {
+      drawLoupe(mouseCanvasX, mouseCanvasY, zoom, panX, panY);
+    }
   }
 
   // Update status bar
@@ -519,6 +524,18 @@ function drawPerspectiveOverlay(zoom: number, panX: number, panY: number): void 
 }
 
 function drawCrosshair(x: number, y: number, w: number, h: number): void {
+  const state = getState();
+  if (state.activeTool === 'eraser') {
+    overlayCtx.beginPath();
+    overlayCtx.arc(x, y, state.canvas.eraserRadius, 0, 2*Math.PI);
+    overlayCtx.fillStyle = 'rgba(239, 68, 68, 0.2)';
+    overlayCtx.fill();
+    overlayCtx.strokeStyle = 'rgba(239, 68, 68, 0.8)';
+    overlayCtx.lineWidth = 1;
+    overlayCtx.stroke();
+    return;
+  }
+
   overlayCtx.strokeStyle = 'rgba(37,99,235,0.35)';
   overlayCtx.lineWidth = 0.5;
   overlayCtx.setLineDash([4, 4]);
@@ -527,6 +544,54 @@ function drawCrosshair(x: number, y: number, w: number, h: number): void {
   overlayCtx.moveTo(x, 0); overlayCtx.lineTo(x, h);
   overlayCtx.stroke();
   overlayCtx.setLineDash([]);
+}
+
+function drawLoupe(mouseCanvasX: number, mouseCanvasY: number, zoom: number, panX: number, panY: number): void {
+  const LOUPE_SIZE = 140;
+  const ZOOM_FACTOR = Math.max(2, 6 / zoom); // effectively 3x zoom relative to screen
+  
+  overlayCtx.save();
+  let lx = mouseCanvasX + 24;
+  let ly = mouseCanvasY - LOUPE_SIZE - 24;
+  if (lx + LOUPE_SIZE > overlayCanvas.width) lx = mouseCanvasX - LOUPE_SIZE - 24;
+  if (ly < 0) ly = mouseCanvasY + 24;
+
+  overlayCtx.beginPath();
+  overlayCtx.arc(lx + LOUPE_SIZE/2, ly + LOUPE_SIZE/2, LOUPE_SIZE/2, 0, 2*Math.PI);
+  overlayCtx.clip();
+
+  overlayCtx.fillStyle = '#fff';
+  overlayCtx.fillRect(lx, ly, LOUPE_SIZE, LOUPE_SIZE);
+
+  const srcSize = LOUPE_SIZE / ZOOM_FACTOR;
+  const { imgX, imgY } = canvasToImage(mouseCanvasX, mouseCanvasY, zoom, panX, panY);
+
+  const state = getState();
+  const filterStr = state.canvas.imageFilters.invert ? 'invert(1)' : 'none';
+  overlayCtx.filter = filterStr;
+  overlayCtx.drawImage(
+    bitmap!,
+    imgX - srcSize/2, imgY - srcSize/2, srcSize, srcSize,
+    lx, ly, LOUPE_SIZE, LOUPE_SIZE
+  );
+  overlayCtx.filter = 'none';
+
+  overlayCtx.beginPath();
+  overlayCtx.moveTo(lx + LOUPE_SIZE/2, ly);
+  overlayCtx.lineTo(lx + LOUPE_SIZE/2, ly + LOUPE_SIZE);
+  overlayCtx.moveTo(lx, ly + LOUPE_SIZE/2);
+  overlayCtx.lineTo(lx + LOUPE_SIZE, ly + LOUPE_SIZE/2);
+  overlayCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+  overlayCtx.lineWidth = 1;
+  overlayCtx.stroke();
+
+  overlayCtx.beginPath();
+  overlayCtx.arc(lx + LOUPE_SIZE/2, ly + LOUPE_SIZE/2, LOUPE_SIZE/2, 0, 2*Math.PI);
+  overlayCtx.strokeStyle = '#e4e4e7';
+  overlayCtx.lineWidth = 2;
+  overlayCtx.stroke();
+  
+  overlayCtx.restore();
 }
 
 function drawCalibGrid(
@@ -876,6 +941,30 @@ function hitTestDataPoint(canvasX: number, canvasY: number): { dataset: Dataset;
   return null;
 }
 
+function erasePointsInRadius(canvasX: number, canvasY: number, radius: number): void {
+  const state = getState();
+  const { zoom, panX, panY } = state.canvas;
+  let changed = false;
+
+  setState(draft => {
+    for (const ds of draft.datasets) {
+      if (!ds.visible) continue;
+      const initialLength = ds.points.length;
+      ds.points = ds.points.filter(pt => {
+        const { canvasX: cx, canvasY: cy } = imageToCanvas(pt.pixelX, pt.pixelY, zoom, panX, panY);
+        return distance(canvasX, canvasY, cx, cy) > radius;
+      });
+      if (ds.points.length !== initialLength) {
+        changed = true;
+      }
+    }
+  });
+
+  if (changed) {
+    pushHistory('Erase points');
+  }
+}
+
 function handleWheel(e: WheelEvent): void {
   e.preventDefault();
   const state = getState();
@@ -942,6 +1031,9 @@ function handleMouseDown(e: MouseEvent): void {
       onCalibClick(imgX, imgY);
     } else if (state.activeTool === 'add-point' && onDigitizerClick) {
       onDigitizerClick(imgX, imgY);
+    } else if (state.activeTool === 'eraser') {
+      isErasing = true;
+      erasePointsInRadius(x, y, state.canvas.eraserRadius);
     } else if (state.activeTool === 'measure') {
       handleMeasureClick(imgX, imgY);
     } else if (state.activeTool === 'auto-trace') {
@@ -987,6 +1079,11 @@ function handleMouseMove(e: MouseEvent): void {
 
   if (isDrawingRoi) {
     setState(d => { d.canvas.roi = { x1: roiStartImgX, y1: roiStartImgY, x2: imgX, y2: imgY }; });
+    return;
+  }
+
+  if (isErasing) {
+    erasePointsInRadius(x, y, state.canvas.eraserRadius);
     return;
   }
 
@@ -1047,6 +1144,9 @@ function handleMouseUp(_e: MouseEvent): void {
   if (isDrawingRoi) {
     isDrawingRoi = false;
     setState(d => { d.activeTool = 'pointer'; });
+  }
+  if (isErasing) {
+    isErasing = false;
   }
   if (getState().activeTool === 'template' && onTemplateDragEnd) {
     onTemplateDragEnd(mouseImgX, mouseImgY);
@@ -1208,6 +1308,7 @@ function handleTouchCancel(e: TouchEvent): void {
 
 function handleMouseLeave(): void {
   isPanning = false;
+  isErasing = false;
   mouseCanvasX = -999; mouseCanvasY = -999;
   hoverPointId = null;
   render();
@@ -1280,7 +1381,7 @@ function getCursorForTool(tool: string): string {
     case 'pan': return 'grab';
     case 'add-point': return 'crosshair';
     case 'calibrate': return 'crosshair';
-    case 'eraser': return 'cell';
+    case 'eraser': return 'none'; // using drawn cursor
     case 'roi': return 'crosshair';
     case 'measure': return 'crosshair';
     case 'pie': return 'crosshair';

@@ -117,6 +117,38 @@ export function initToolbar(container: HTMLElement): void {
 
   container.appendChild(mkDivider());
 
+  // Brush Size
+  const brushWrap = document.createElement('div');
+  brushWrap.style.cssText = 'display:flex;align-items:center;gap:6px;margin:0 4px;';
+  const brushLabel = document.createElement('span');
+  brushLabel.style.cssText = 'font-size:11px;color:var(--color-muted);';
+  brushLabel.innerHTML = Icons.eraser; // Using eraser icon as proxy for brush size
+  brushLabel.title = 'Brush/Eraser Size';
+  const brushInput = document.createElement('input');
+  brushInput.type = 'range';
+  brushInput.min = '2';
+  brushInput.max = '50';
+  brushInput.value = String(getState().canvas.eraserRadius);
+  brushInput.style.cssText = 'width:60px;accent-color:var(--color-accent);';
+  brushInput.title = 'Adjust brush/eraser radius';
+  brushInput.addEventListener('input', () => {
+    setState(d => { d.canvas.eraserRadius = parseInt(brushInput.value, 10); });
+  });
+  subscribe(() => { brushInput.value = String(getState().canvas.eraserRadius); });
+  brushWrap.appendChild(brushLabel);
+  brushWrap.appendChild(brushInput);
+  container.appendChild(brushWrap);
+
+  // Loupe Toggle
+  const loupeBtn = mkBtn(Icons.search, '', 'Toggle Magnifying Loupe');
+  loupeBtn.addEventListener('click', () => {
+    setState(d => { d.canvas.loupeEnabled = !d.canvas.loupeEnabled; });
+  });
+  subscribe(() => {
+    loupeBtn.classList.toggle('active', getState().canvas.loupeEnabled);
+  });
+  container.appendChild(loupeBtn);
+
   // Dark mode toggle
   const isDark = () => document.body.classList.contains('dark');
   const darkBtn = mkBtn(isDark() ? Icons.sun : Icons.moon, '', isDark() ? 'Switch to light mode' : 'Switch to dark mode');

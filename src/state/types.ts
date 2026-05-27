@@ -146,6 +146,8 @@ export interface AppState {
     panY: number;
     imageFilters: ImageFilters;
     roi: Roi | null;
+    eraserRadius: number;
+    loupeEnabled: boolean;
   };
   calibration: CalibrationState;
   datasets: Dataset[];
