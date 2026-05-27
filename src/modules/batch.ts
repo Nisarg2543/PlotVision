@@ -3,7 +3,7 @@
  * User loads a batch of files; PlotVision steps through them one at a time,
  * applying the same calibration to each image (for identically-formatted charts).
  */
-import { setState } from '../state/store';
+import { setState, resetCalibrationState } from '../state/store';
 import { setImageBitmap, fitToWindow, render } from './canvas-engine';
 import { addDataset } from './datasets';
 import { showToast } from '../utils/toast';
@@ -94,6 +94,8 @@ export async function advanceBatch(): Promise<void> {
       }
       await page.render({ canvasContext: offscreen.getContext('2d')!, viewport }).promise;
       bitmap = await createImageBitmap(offscreen);
+      page.cleanup();
+      try { await doc.destroy(); } catch (e) {}
     } else {
       bitmap = await createImageBitmap(item.file);
     }
@@ -109,6 +111,8 @@ export async function advanceBatch(): Promise<void> {
       draft.image.totalPages  = 1;
       if (prevCalib) {
         draft.calibration = prevCalib;
+      } else {
+        draft.calibration = resetCalibrationState();
       }
     });
 

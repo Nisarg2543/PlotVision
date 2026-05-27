@@ -120,6 +120,9 @@ async function loadPDF(buffer: ArrayBuffer, filename: string): Promise<void> {
     return;
   }
   showToast('Loading PDF…', 'info', 1500);
+  if (pdfDoc) {
+    try { await pdfDoc.destroy(); } catch (e) {}
+  }
   const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
   pdfDoc = doc;
   await renderPDFPage(doc, 1, filename);
@@ -137,6 +140,7 @@ async function renderPDFPage(doc: any, pageNum: number, filename: string): Promi
 
   await page.render({ canvasContext: offCtx, viewport }).promise;
   const bitmap = await createImageBitmap(offscreen);
+  page.cleanup();
   handleBitmapLoaded(bitmap, filename, pageNum, doc.numPages);
 }
 
